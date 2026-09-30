@@ -1,6 +1,7 @@
 package com.huffcart.app.ui.screens
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.RectF
 import android.media.AudioAttributes
@@ -14,18 +15,20 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -40,19 +43,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
+import com.huffcart.app.ui.game.KeyMappingStore
+import com.huffcart.app.ui.game.PadControlsOverlay
+import com.huffcart.app.ui.theme.HcBannerTag
+import com.huffcart.app.ui.theme.HcCream
+import com.huffcart.app.ui.theme.HcGameBlack
+import com.huffcart.app.ui.theme.HcPanelDark
+import com.huffcart.app.ui.theme.HcPanelPressed
+import com.huffcart.app.ui.theme.HcRed
+import com.huffcart.app.ui.theme.HcRedDark
+import com.huffcart.app.ui.theme.PixelFontFamily
 import com.huffcart.core.bridge.Frame
 import com.huffcart.core.bridge.LoadResult
 import com.huffcart.core.bridge.RetroButton
@@ -60,15 +73,14 @@ import com.huffcart.core.libretro.LibretroCore
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
-import kotlin.math.atan2
-import kotlin.math.hypot
 import kotlinx.coroutines.delay
 
 /**
- * 游戏运行屏（game-playback 能力的宿主）：
- * - 画面：SurfaceView 软件渲染，整数倍缩放 + letterbox（锐利像素，spec「画面呈现」）
+ * 游戏运行屏（game-playback 能力的宿主，retro-ui-redesign 改版）：
+ * - 竖屏：上区画面（整数倍缩放 letterbox）+ 下区深色圆角控制面板；横屏：全屏画面 + 半透明浮层
  * - 音频：AudioTrack blocking write 作为帧节拍（design 决策 4）
- * - 输入：Compose Canvas 浮层 + 多点触控映射 1P 位掩码
+ * - 输入：PadControls 触控 + 物理键盘映射（KeyMappingStore），两条通路独立写 setButton
+ * - 存/读/快进 chips 固定右上（save-states-fastforward，位置不动）
  * - CRT 滤镜接入点：绘制处可叠加 RuntimeShader（API 33+ 特性检测，本期不实现）
  */
 @Composable
@@ -100,54 +112,211 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    // 物理键盘映射（retro-ui-redesign）：keyCode → 虚拟键
+    val focusRequester = remember { FocusRequester() }
+    val view = androidx.compose.ui.platform.LocalView.current
+    // 游戏屏无文本输入，焦点常在组合期尚未就绪导致 requestFocus 空转——
+    // 窗口每次重获焦点（含首次）都补请求一次
+    DisposableEffect(Unit) {
+        val listener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+            if (hasFocus) focusRequester.requestFocus()
+        }
+        view.viewTreeObserver.addOnWindowFocusChangeListener(listener)
+        onDispose { view.viewTreeObserver.removeOnWindowFocusChangeListener(listener) }
+    }
+    val keyCodeToButton = remember {
+        KeyMappingStore.load(context).entries.associate { (button, keyCode) -> keyCode to button }
+    }
+    val handleButton: (RetroButton, Boolean) -> Unit = { button, pressed ->
+        session?.core?.setButton(0, button, pressed)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(HcGameBlack)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                val button = keyCodeToButton[event.nativeKeyEvent.keyCode]
+                if (button == null) {
+                    false
+                } else {
+                    Log.d("GameKeys", "key ${event.nativeKeyEvent.keyCode} → $button")
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            if (event.nativeKeyEvent.repeatCount == 0) handleButton(button, true)
+                            true
+                        }
+                        KeyEventType.KeyUp -> {
+                            handleButton(button, false)
+                            true
+                        }
+                        else -> false
+                    }
+                }
+            },
+    ) {
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
         if (session == null || fatal != null) {
             Column(
-                modifier = Modifier.align(androidx.compose.ui.Alignment.Center),
-                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
                     text = fatal ?: "会话创建失败",
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White,
                 )
-                TextButton(onClick = onExit) { Text(text = "返回", color = Color(0xFFE60012)) }
+                TextButton(onClick = onExit) { Text(text = "返回", color = HcPanelPressed) }
             }
         } else {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    SurfaceView(ctx).apply {
-                        holder.addCallback(session.surfaceCallback)
+            val isPortrait =
+                LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+            if (isPortrait) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                SurfaceView(ctx).apply {
+                                    holder.addCallback(session.surfaceCallback)
+                                }
+                            },
+                        )
+                        FeedbackPill(feedback, Modifier.align(Alignment.TopCenter))
+                        SessionChips(
+                            modifier = Modifier.align(Alignment.TopEnd),
+                            ffRate = ffRate,
+                            onSave = { session.requestSaveState() },
+                            onLoad = { session.requestLoadState() },
+                            onCycleFf = {
+                                ffRate = if (ffRate >= 3) 1 else ffRate + 1
+                                session.ffFactor = ffRate
+                            },
+                        )
                     }
-                },
-            )
-            GamepadOverlay { button, pressed -> session.core.setButton(0, button, pressed) }
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 28.dp, end = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                PadChip(label = "存", desc = "存档") { session.requestSaveState() }
-                PadChip(label = "读", desc = "读档") { session.requestLoadState() }
-                PadChip(label = "${ffRate}x", desc = "快进") {
-                    ffRate = if (ffRate >= 3) 1 else ffRate + 1
-                    session.ffFactor = ffRate
+                    ControlPanel(modifier = Modifier.fillMaxWidth(), onButton = handleButton)
+                    FamilyComputerBanner()
                 }
-            }
-            feedback?.let { msg ->
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 32.dp)
-                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Text(msg, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            SurfaceView(ctx).apply {
+                                holder.addCallback(session.surfaceCallback)
+                            }
+                        },
+                    )
+                    PadControlsOverlay(onButton = handleButton)
+                    FeedbackPill(feedback, Modifier.align(Alignment.TopCenter))
+                    SessionChips(
+                        modifier = Modifier.align(Alignment.TopEnd),
+                        ffRate = ffRate,
+                        onSave = { session.requestSaveState() },
+                        onLoad = { session.requestLoadState() },
+                        onCycleFf = {
+                            ffRate = if (ffRate >= 3) 1 else ffRate + 1
+                            session.ffFactor = ffRate
+                        },
+                    )
                 }
             }
         }
+    }
+}
+
+/** 竖屏下区：深色圆角控制面板，组件化手柄装配（不透明）。 */
+@Composable
+private fun ControlPanel(modifier: Modifier, onButton: (RetroButton, Boolean) -> Unit) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(280.dp)
+            .background(
+                HcPanelDark,
+                RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            ),
+    ) {
+        com.huffcart.app.ui.game.DpadControl(
+            size = 170.dp,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 28.dp),
+            onButton = onButton,
+        )
+        com.huffcart.app.ui.game.AbButtons(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 28.dp),
+            onButton = onButton,
+        )
+        com.huffcart.app.ui.game.MenuPills(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 18.dp),
+            onButton = onButton,
+        )
+    }
+}
+
+/** 面板底部装饰横幅（设计稿品牌元素，纯展示）。 */
+@Composable
+private fun FamilyComputerBanner() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(HcRedDark),
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(vertical = 10.dp)
+                .background(HcBannerTag, RoundedCornerShape(4.dp))
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+        ) {
+            Text(
+                text = "FAMILY COMPUTER",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = PixelFontFamily,
+                fontSize = 8.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeedbackPill(message: String?, modifier: Modifier = Modifier) {
+    if (message == null) return
+    Box(
+        modifier = modifier
+            .padding(top = 32.dp)
+            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(message, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun SessionChips(
+    modifier: Modifier = Modifier,
+    ffRate: Int,
+    onSave: () -> Unit,
+    onLoad: () -> Unit,
+    onCycleFf: () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .padding(top = 28.dp, end = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        PadChip(label = "存", desc = "存档", onClick = onSave)
+        PadChip(label = "读", desc = "读档", onClick = onLoad)
+        PadChip(label = "${ffRate}x", desc = "快进", onClick = onCycleFf)
     }
 }
 
@@ -157,8 +326,8 @@ private fun PadChip(label: String, desc: String, onClick: () -> Unit) {
         modifier = Modifier
             .size(48.dp)
             .semantics { contentDescription = desc }
-            .background(Color(0xFFE60012).copy(alpha = 0.45f), CircleShape)
-            .border(1.dp, Color(0xFFF6F1E7).copy(alpha = 0.4f), CircleShape)
+            .background(HcRed.copy(alpha = 0.45f), CircleShape)
+            .border(1.dp, HcCream.copy(alpha = 0.4f), CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -312,7 +481,7 @@ private class GameSession(context: Context, romName: String) {
                     if (n > 0) track.write(current.audio, 0, n, AudioTrack.WRITE_BLOCKING)
                 }
             }
-            // 渲染：整数倍缩放 letterbox
+            // 渲染：整数倍缩放 letterbox（canvas 为所在区域的实际尺寸，分区/全屏自适应）
             val holder = surfaceRef.get() ?: continue
             val surface: Surface = holder.surface
             if (surface == null || !surface.isValid) continue
@@ -360,134 +529,4 @@ private class GameSession(context: Context, romName: String) {
         core.getSram()?.let { bytes -> if (bytes.isNotEmpty()) srmFile.writeBytes(bytes) }
         core.deinit()
     }
-}
-
-/* ---------------- 虚拟手柄 ---------------- */
-
-private fun dp(sizePx: Int, density: Float): Float = sizePx * density
-
-private enum class PadZone { A, B, SELECT, START, UP, DOWN, LEFT, RIGHT }
-
-@Composable
-private fun GamepadOverlay(onButton: (RetroButton, Boolean) -> Unit) {
-    var canvasSize by remember { mutableStateOf(Size.Zero) }
-    var pressed by remember { mutableStateOf(emptySet<RetroButton>()) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onSizeChanged { canvasSize = Size(it.width.toFloat(), it.height.toFloat()) }
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val density = density
-                        val active = event.changes
-                            .filter { it.pressed }
-                            .flatMap { hitTest(it.position, canvasSize, density) }
-                            .toSet()
-                        if (active != pressed) {
-                            (pressed - active).forEach { onButton(it, false) }
-                            (active - pressed).forEach { onButton(it, true) }
-                            pressed = active
-                        }
-                        event.changes.forEach { it.consume() }
-                    }
-                }
-            },
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawPad(pressed, size)
-        }
-    }
-}
-
-private fun hitTest(pos: Offset, canvas: Size, density: Float): Set<RetroButton> {
-    if (canvas == Size.Zero) return emptySet()
-    val out = mutableSetOf<RetroButton>()
-    val padR = dp(96, density)
-    val dpadCenter = Offset(canvas.width * 0.16f, canvas.height * 0.74f)
-    val d = pos - dpadCenter
-    if (hypot(d.x, d.y) <= padR) {
-        if (d == Offset.Zero) return setOf(RetroButton.LEFT)
-        out += if (kotlin.math.abs(d.x) >= kotlin.math.abs(d.y)) {
-            if (d.x > 0) RetroButton.RIGHT else RetroButton.LEFT
-        } else {
-            if (d.y > 0) RetroButton.DOWN else RetroButton.UP
-        }
-    }
-    val aR = dp(40, density)
-    val bR = dp(40, density)
-    if (hypot(pos.x - canvas.width * 0.90f, pos.y - canvas.height * 0.72f) <= aR) out += RetroButton.A
-    if (hypot(pos.x - canvas.width * 0.78f, pos.y - canvas.height * 0.78f) <= bR) out += RetroButton.B
-    // Start / Select：底部中间两个胶囊
-    val pillHalfW = dp(52, density)
-    val pillHalfH = dp(20, density)
-    val centerY = canvas.height * 0.95f
-    fun inPill(cx: Float): Boolean =
-        kotlin.math.abs(pos.x - cx) <= pillHalfW && kotlin.math.abs(pos.y - centerY) <= pillHalfH
-    if (inPill(canvas.width * 0.40f)) out += RetroButton.SELECT
-    if (inPill(canvas.width * 0.60f)) out += RetroButton.START
-    return out
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPad(
-    pressed: Set<RetroButton>,
-    canvas: Size,
-) {
-    val base = Color(0xFFE60012).copy(alpha = 0.30f)
-    val activeColor = Color(0xFFE60012).copy(alpha = 0.75f)
-    val stroke = Color(0xFFF6F1E7).copy(alpha = 0.45f)
-
-    fun colorFor(button: RetroButton) = if (button in pressed) activeColor else base
-
-    // 十字键
-    val cx = canvas.width * 0.16f
-    val cy = canvas.height * 0.74f
-    val armW = dp(38, density)
-    val armL = dp(64, density)
-    fun drawDir(button: RetroButton, dx: Float, dy: Float) {
-        drawRoundRect(
-            color = colorFor(button),
-            topLeft = Offset(cx + dx * armL / 2 - if (dy == 0f) armL / 2 else armW / 2,
-                cy + dy * armL / 2 - if (dx == 0f) armL / 2 else armW / 2),
-            size = if (dy == 0f) Size(armL, armW) else Size(armW, armL),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(dp(10, density)),
-        )
-    }
-    drawDir(RetroButton.LEFT, -1f, 0f)
-    drawDir(RetroButton.RIGHT, 1f, 0f)
-    drawDir(RetroButton.UP, 0f, -1f)
-    drawDir(RetroButton.DOWN, 0f, 1f)
-
-    // A / B
-    fun drawRound(button: RetroButton, cx: Float, cy: Float, r: Float, label: String) {
-        drawCircle(color = colorFor(button), radius = r, center = Offset(cx, cy))
-        drawCircle(color = stroke, radius = r, center = Offset(cx, cy), style = Stroke(width = dp(2, density)))
-        drawContext.canvas.nativeCanvas.drawText(
-            label, cx, cy + dp(6, density),
-            android.graphics.Paint().apply {
-                color = android.graphics.Color.WHITE
-                textSize = dp(16, density)
-                textAlign = android.graphics.Paint.Align.CENTER
-                isAntiAlias = true
-            },
-        )
-    }
-    drawRound(RetroButton.A, canvas.width * 0.90f, canvas.height * 0.72f, dp(40, density), "A")
-    drawRound(RetroButton.B, canvas.width * 0.78f, canvas.height * 0.78f, dp(40, density), "B")
-
-    // Start / Select
-    fun drawPill(button: RetroButton, cx: Float) {
-        val halfW = dp(52, density)
-        val halfH = dp(20, density)
-        drawRoundRect(
-            color = colorFor(button),
-            topLeft = Offset(cx - halfW, canvas.height * 0.95f - halfH),
-            size = Size(halfW * 2, halfH * 2),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(halfH),
-        )
-    }
-    drawPill(RetroButton.SELECT, canvas.width * 0.40f)
-    drawPill(RetroButton.START, canvas.width * 0.60f)
 }

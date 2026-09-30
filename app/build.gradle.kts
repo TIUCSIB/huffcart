@@ -49,6 +49,14 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
     debugImplementation(libs.androidx.ui.tooling)
+    testImplementation(libs.kotlin.test.junit5)
+    testImplementation(libs.junit.jupiter)
+}
+
+// 测试统一走 JUnit Platform（与 :core-bridge 同理：非 ASCII 路径下 JUnit4 类加载不可用）
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }
