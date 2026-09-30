@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 启动窗口背景与 Compose 主题背景同色，避免冷启动闪白 -->
+    <color name="window_background">#121212</color>
+    <color name="ic_launcher_background">#E60012</color>
+</resources>

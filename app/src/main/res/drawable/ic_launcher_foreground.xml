@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FC 十字键剪影：以 108dp 自适应图标画布绘制，主体控制在中央 66dp 安全区内 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#F6F1E7"
+        android:pathData="M50,34 h8 v16 h16 v8 h-16 v16 h-8 v-16 h-16 v-8 h16 z" />
+</vector>

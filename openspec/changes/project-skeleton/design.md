@@ -31,7 +31,8 @@
 
 ## Risks / Trade-offs
 
-- [融合像素字体资源体积较大（MB 级）] → 仅打包单一字号变体；若 APK 超预期再做字符子集化
+- [项目路径含非 ASCII 字符（F:\自己写的项目\…），JVM 子进程参数经系统代码页转换后损坏] → AGP 路径检查用 `android.overridePathCheck=true` 关闭；Gradle 测试 worker 因此无法加载测试类，改用 JUnit Platform + 显式 jupiter 依赖后仍需 **从 ASCII 路径构建**：本机已 `subst H:` 映射项目（重启失效需重建，或改用可用的目录联接）。长期方案是项目迁移至纯 ASCII 路径
+- [融合像素字体资源体积较大（7MB）] → 仅打包单一字号变体；当前 APK 11.5MB 可接受，超预期再做字符子集化
 - [NDK 27 与后续 gradle 配置的 ABI 过滤细节] → 本期不涉及 NDK 构建，风险推迟到 `libretro-playback`；骨架中先固定 `arm64-v8a` 的 abiFilters 占位注释
 - [深色 only 意味着系统浅色下也强制深色] → 刻意的产品选择（游戏画面更突出），spec 已按深色写死，不是遗漏
 - [纯 Kotlin 模块在 AS 里默认模板不存在] → 手工配置 `java-library` + Kotlin 插件，构建脚本中注明用途
