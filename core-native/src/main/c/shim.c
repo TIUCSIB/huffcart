@@ -34,6 +34,8 @@ static void (*p_retro_run)(void);
 static bool (*p_retro_load_game)(const struct retro_game_info *);
 static void (*p_retro_unload_game)(void);
 static void (*p_retro_reset)(void);
+static void *(*p_retro_get_memory_data)(unsigned);
+static size_t (*p_retro_get_memory_size)(unsigned);
 
 /* --- 状态 --- */
 static JavaVM *vm;
@@ -67,33 +69,34 @@ static void shim_log(enum retro_log_level level, const char *fmt, ...) {
 
 static size_t audio_sample_batch_cb(const int16_t *data, size_t frames);
 
-static void environment_cb(unsigned cmd, void *data) {
+static bool environment_cb(unsigned cmd, void *data) {
     switch (cmd) {
     case RETRO_ENVIRONMENT_GET_CAN_DUPE:
         *(bool *)data = true;
-        return;
+        return true;
     case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
         ((struct retro_log_callback *)data)->log = shim_log;
-        return;
+        return true;
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
         unsigned fmt = *(unsigned *)data;
         if (fmt != RETRO_PIXEL_FORMAT_XRGB8888)
             LOGE("核心请求了非 XRGB8888 像素格式 %u（将按 XRGB 处理）", fmt);
-        return;
+        return true;
     }
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
+        if (!system_dir) return false;
         *(const char **)data = system_dir;
-        return;
+        return true;
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
+        if (!save_dir) return false;
         *(const char **)data = save_dir;
-        return;
+        return true;
     case RETRO_ENVIRONMENT_SET_VARIABLES:
-        return; /* 全部走核心默认值 */
+        return true; /* 全部走核心默认值 */
     case RETRO_ENVIRONMENT_GET_VARIABLE:
-        ((struct retro_variable *)data)->value = NULL; /* NULL → 核心取默认 */
-        return;
+        return false; /* 未处理 → 核心取默认值（返回值是 ABI 语义，不可为垃圾） */
     default:
-        return;
+        return false;
     }
 }
 
@@ -173,6 +176,12 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeLoadCore(JNIEnv *env, jobject
     core_lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     (*env)->ReleaseStringUTFChars(env, libPath, path);
     if (!core_lib) {
+        /* extractNativeLibs=false 时库不打盘（留在 APK 内），
+           全路径不存在，按 SONAME 走应用 linker 命名空间解析 */
+        LOGI("全路径 dlopen 失败（%s），改按 SONAME 解析", dlerror());
+        core_lib = dlopen("libfceumm_libretro.so", RTLD_NOW | RTLD_LOCAL);
+    }
+    if (!core_lib) {
         LOGE("dlopen 失败: %s", dlerror());
         return JNI_FALSE;
     }
@@ -186,7 +195,7 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeLoadCore(JNIEnv *env, jobject
     SYM(retro_set_audio_sample); SYM(retro_set_audio_sample_batch);
     SYM(retro_set_input_poll); SYM(retro_set_input_state);
     SYM(retro_run); SYM(retro_load_game); SYM(retro_unload_game);
-    SYM(retro_reset);
+    SYM(retro_reset); SYM(retro_get_memory_data); SYM(retro_get_memory_size);
 #undef SYM
 
     p_retro_set_environment(environment_cb);
@@ -298,4 +307,34 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeGetTiming(JNIEnv *env, jobjec
     jdouble v[2] = { timing_fps, timing_rate };
     (*env)->SetDoubleArrayRegion(env, out, 0, 2, v);
     return out;
+}
+
+/* region 取 libretro 的 RETRO_MEMORY_*（SRAM = 0） */
+JNIEXPORT jbyteArray JNICALL
+Java_com_huffcart_core_libretro_LibretroCore_nativeGetMemory(JNIEnv *env, jobject thiz, jint region) {
+    if (!p_retro_get_memory_data || !p_retro_get_memory_size)
+        return NULL;
+    void *p = p_retro_get_memory_data((unsigned)region);
+    size_t n = p_retro_get_memory_size((unsigned)region);
+    if (!p || n == 0)
+        return NULL;
+    jbyteArray arr = (*env)->NewByteArray(env, (jsize)n);
+    (*env)->SetByteArrayRegion(env, arr, 0, (jsize)n, (const jbyte *)p);
+    return arr;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_huffcart_core_libretro_LibretroCore_nativeSetMemory(JNIEnv *env, jobject thiz,
+                                                             jint region, jbyteArray data) {
+    if (!p_retro_get_memory_data || !p_retro_get_memory_size)
+        return JNI_FALSE;
+    void *p = p_retro_get_memory_data((unsigned)region);
+    size_t n = p_retro_get_memory_size((unsigned)region);
+    if (!p || n == 0)
+        return JNI_FALSE;
+    jsize len = (*env)->GetArrayLength(env, data);
+    if ((size_t)len > n)
+        len = (jsize)n;
+    (*env)->GetByteArrayRegion(env, data, 0, len, (jbyte *)p);
+    return JNI_TRUE;
 }

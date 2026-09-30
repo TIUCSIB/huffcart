@@ -32,5 +32,6 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":core-bridge"))
+    // LibretroCore 的公共 API 直接暴露 RetroCore 契约类型，须用 api 透传
+    api(project(":core-bridge"))
 }

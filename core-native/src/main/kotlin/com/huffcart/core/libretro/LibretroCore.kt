@@ -38,6 +38,8 @@ class LibretroCore : RetroCore {
     private var fps = 60.0
     private var sampleRate = 48000.0
 
+    // internal 会被 Kotlin 改名混淆，JNI up-call 需要稳定名字，用 @JvmName 钉住
+    @JvmName("getInputMaskFromNative")
     internal fun getInputMaskFromNative(player: Int): Int =
         inputMasks.getOrNull(player) ?: 0
 
@@ -76,6 +78,13 @@ class LibretroCore : RetroCore {
     }
 
     fun fps(): Double = fps
+
+    fun sampleRateInt(): Int = sampleRate.toInt()
+
+    /** 电池存档原始数据（RETRO_MEMORY_SAVE_RAM），无 SRAM 时返回 null。 */
+    fun getSram(): ByteArray? = nativeGetMemory(0)
+
+    fun setSram(data: ByteArray): Boolean = nativeSetMemory(0, data)
 
     override fun setButton(player: Int, button: RetroButton, pressed: Boolean) {
         val bit = when (button) {
@@ -122,4 +131,6 @@ class LibretroCore : RetroCore {
     private external fun nativeUnloadGame()
     private external fun nativeDeinit()
     private external fun nativeGetTiming(out: DoubleArray)
+    private external fun nativeGetMemory(region: Int): ByteArray?
+    private external fun nativeSetMemory(region: Int, data: ByteArray): Boolean
 }

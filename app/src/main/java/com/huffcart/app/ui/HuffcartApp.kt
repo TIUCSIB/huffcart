@@ -13,11 +13,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.huffcart.app.ui.screens.GamePlaceholderScreen
+import androidx.navigation.navArgument
+import com.huffcart.app.ui.screens.GameScreen
 import com.huffcart.app.ui.screens.LibraryScreen
 import com.huffcart.app.ui.screens.SettingsScreen
 
@@ -27,13 +29,12 @@ private data class TopDestination(
     val icon: ImageVector,
 )
 
+private const val ROUTE_LIBRARY = "library"
+
 private val topDestinations = listOf(
     TopDestination(route = "library", label = "游戏库", icon = Icons.AutoMirrored.Filled.List),
     TopDestination(route = "settings", label = "设置", icon = Icons.Filled.Settings),
 )
-
-private const val ROUTE_LIBRARY = "library"
-private const val ROUTE_GAME = "game"
 
 @Composable
 fun HuffcartApp() {
@@ -69,11 +70,19 @@ fun HuffcartApp() {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(ROUTE_LIBRARY) {
-                LibraryScreen(onOpenGamePlaceholder = { navController.navigate(ROUTE_GAME) })
+                LibraryScreen(
+                    onPlay = { name ->
+                        navController.navigate("game/${android.net.Uri.encode(name)}")
+                    },
+                )
             }
             composable("settings") { SettingsScreen() }
-            composable(ROUTE_GAME) {
-                GamePlaceholderScreen(onBack = { navController.popBackStack() })
+            composable(
+                route = "game/{rom}",
+                arguments = listOf(navArgument("rom") { type = NavType.StringType }),
+            ) { entry ->
+                val rom = entry.arguments?.getString("rom").orEmpty()
+                GameScreen(romName = android.net.Uri.decode(rom), onExit = { navController.popBackStack() })
             }
         }
     }
