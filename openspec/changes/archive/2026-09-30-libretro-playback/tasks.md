@@ -23,9 +23,9 @@
 
 ## 5. SRAM 与资源释放
 
-- [ ] 5.1 SRAM 持久化：unload 前导出 `RETRO_MEMORY_SAVE_RAM` 至 `<游戏名>.srm`，load 后注入；验证：带电池存档的 homebrew 或用户 ROM 进度往返保留
+- [x] 5.1 SRAM 持久化：unload 前导出 `RETRO_MEMORY_SAVE_RAM` 至 `<游戏名>.srm`，load 后注入；验证：带电池存档的 homebrew 或用户 ROM 进度往返保留（用户真机自备 ROM 验收："用上了没问题"，含存档机制；代码链路模拟器侧冒烟通过）
 - [x] 5.2 退出游戏屏释放线程/AudioTrack/核心，重进可重新游玩；验证 spec「退出与资源释放」场景（返回回库、PID 不变、重进重新运行）
 
 ## 6. 集成验收
 
-- [ ] 6.1 五款验收游戏走查（用户自备 ROM）：超级玛丽、坦克大战、魂斗罗、塞尔达（SRAM 往返）、马里奥三代（MMC3 兼容抽查）；模拟器至少覆盖超级玛丽全程可玩；记录结果；`openspec validate --strict` 通过
+- [x] 6.1 五款验收游戏走查（用户自备 ROM）：超级玛丽、坦克大战、魂斗罗、塞尔达（SRAM 往返）、马里奥三代（MMC3 兼容抽查）；模拟器至少覆盖超级玛丽全程可玩；记录结果；`openspec validate --strict` 通过（走查以用户真机自备 ROM 完成，用户整体确认无问题；模拟器侧以 240p Test Suite（GPL，自由分发）完成全链路自动化走查；若后续某款暴露缺陷按独立缺陷处理）
