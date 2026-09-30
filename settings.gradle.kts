@@ -24,3 +24,4 @@ rootProject.name = "huffcart"
 
 include(":app")
 include(":core-bridge")
+include(":core-native")

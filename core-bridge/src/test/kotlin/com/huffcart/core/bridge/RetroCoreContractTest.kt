@@ -11,8 +11,8 @@ private class FakeCore : RetroCore {
 
     override val name = "fake"
 
-    override fun loadRom(rom: ByteArray): LoadResult =
-        if (rom.size >= 16) {
+    override fun loadRom(romPath: String): LoadResult =
+        if (romPath.endsWith(".nes")) {
             loaded = true
             LoadResult.OK
         } else {
@@ -22,7 +22,10 @@ private class FakeCore : RetroCore {
     override fun runFrame(): Frame {
         check(loaded) { "runFrame before loadRom" }
         val pixel = if (RetroButton.A in pressed) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
-        return Frame(intArrayOf(pixel), VideoInfo(1, 1), shortArrayOf(), AudioInfo(48_000))
+        return Frame(
+            intArrayOf(pixel), VideoInfo(1, 1),
+            shortArrayOf(0, 0), AudioInfo(48_000), audioSamples = 2,
+        )
     }
 
     override fun setButton(player: Int, button: RetroButton, pressed: Boolean) {
@@ -39,13 +42,13 @@ private class FakeCore : RetroCore {
 class RetroCoreContractTest {
 
     @Test
-    fun loadRomAcceptsIenesHeaderSizedRom() {
-        assertEquals(LoadResult.OK, FakeCore().loadRom(ByteArray(16)))
+    fun loadRomAcceptsNesPath() {
+        assertEquals(LoadResult.OK, FakeCore().loadRom("/data/game.nes"))
     }
 
     @Test
-    fun loadRomRejectsTooSmallRom() {
-        assertEquals(LoadResult.INVALID_ROM, FakeCore().loadRom(ByteArray(4)))
+    fun loadRomRejectsNonNesPath() {
+        assertEquals(LoadResult.INVALID_ROM, FakeCore().loadRom("/data/game.bin"))
     }
 
     @Test
@@ -57,7 +60,7 @@ class RetroCoreContractTest {
     @Test
     fun runFrameReflectsButtonState() {
         val core = FakeCore()
-        core.loadRom(ByteArray(16))
+        core.loadRom("/data/game.nes")
         assertEquals(0xFF000000.toInt(), core.runFrame().video[0])
         core.setButton(player = 0, button = RetroButton.A, pressed = true)
         assertEquals(0xFFFFFFFF.toInt(), core.runFrame().video[0])
@@ -68,7 +71,7 @@ class RetroCoreContractTest {
     @Test
     fun resetClearsPressedButtons() {
         val core = FakeCore()
-        core.loadRom(ByteArray(16))
+        core.loadRom("/data/game.nes")
         core.setButton(0, RetroButton.START, true)
         core.reset()
         assertEquals(0xFF000000.toInt(), core.runFrame().video[0])
@@ -77,9 +80,16 @@ class RetroCoreContractTest {
     @Test
     fun unloadReturnsCoreToUnloadedState() {
         val core = FakeCore()
-        core.loadRom(ByteArray(16))
+        core.loadRom("/data/game.nes")
         core.unload()
         val exception = runCatching { core.runFrame() }.exceptionOrNull()
         assertTrue(exception is IllegalStateException)
+    }
+
+    @Test
+    fun frameCarriesAudioSampleCount() {
+        val core = FakeCore()
+        core.loadRom("/data/game.nes")
+        assertEquals(2, core.runFrame().audioSamples)
     }
 }

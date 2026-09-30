@@ -8,3 +8,5 @@ build/
 .externalNativeBuild
 .cxx
 .kotlin/
+# 核心编译产物由 scripts/build-core.sh 再生成，不入库
+app/src/main/jniLibs/
