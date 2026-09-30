@@ -86,6 +86,15 @@ class LibretroCore : RetroCore {
 
     fun setSram(data: ByteArray): Boolean = nativeSetMemory(0, data)
 
+    /**
+     * 即时存档：完整模拟状态快照（核心私有格式）；失败或核心不支持返回 null。
+     * 须在游戏线程调用（与 runFrame 同线程）。
+     */
+    fun saveState(): ByteArray? = nativeSaveState()
+
+    /** 恢复状态快照；核心拒收（大小/版本不符）返回 false。须在游戏线程调用。 */
+    fun loadState(data: ByteArray): Boolean = nativeLoadState(data)
+
     override fun setButton(player: Int, button: RetroButton, pressed: Boolean) {
         val bit = when (button) {
             RetroButton.B -> 1 shl 0
@@ -133,4 +142,6 @@ class LibretroCore : RetroCore {
     private external fun nativeGetTiming(out: DoubleArray)
     private external fun nativeGetMemory(region: Int): ByteArray?
     private external fun nativeSetMemory(region: Int, data: ByteArray): Boolean
+    private external fun nativeSaveState(): ByteArray?
+    private external fun nativeLoadState(data: ByteArray): Boolean
 }

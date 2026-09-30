@@ -36,6 +36,9 @@ static void (*p_retro_unload_game)(void);
 static void (*p_retro_reset)(void);
 static void *(*p_retro_get_memory_data)(unsigned);
 static size_t (*p_retro_get_memory_size)(unsigned);
+static size_t (*p_retro_serialize_size)(void);
+static bool (*p_retro_serialize)(void *, size_t);
+static bool (*p_retro_unserialize)(const void *, size_t);
 
 /* --- 状态 --- */
 static JavaVM *vm;
@@ -196,6 +199,7 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeLoadCore(JNIEnv *env, jobject
     SYM(retro_set_input_poll); SYM(retro_set_input_state);
     SYM(retro_run); SYM(retro_load_game); SYM(retro_unload_game);
     SYM(retro_reset); SYM(retro_get_memory_data); SYM(retro_get_memory_size);
+    SYM(retro_serialize_size); SYM(retro_serialize); SYM(retro_unserialize);
 #undef SYM
 
     p_retro_set_environment(environment_cb);
@@ -337,4 +341,41 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeSetMemory(JNIEnv *env, jobjec
         len = (jsize)n;
     (*env)->GetByteArrayRegion(env, data, 0, len, (jbyte *)p);
     return JNI_TRUE;
+}
+
+/* 即时存档：完整模拟状态快照（核心私有格式）。须在游戏线程调用（与 retro_run 同线程）。 */
+JNIEXPORT jbyteArray JNICALL
+Java_com_huffcart_core_libretro_LibretroCore_nativeSaveState(JNIEnv *env, jobject thiz) {
+    if (!p_retro_serialize || !p_retro_serialize_size)
+        return NULL;
+    size_t n = p_retro_serialize_size();
+    if (n == 0 || n > (size_t)64 * 1024 * 1024)
+        return NULL;
+    void *buf = malloc(n);
+    if (!buf)
+        return NULL;
+    jbyteArray arr = NULL;
+    if (p_retro_serialize(buf, n)) {
+        arr = (*env)->NewByteArray(env, (jsize)n);
+        if (arr)
+            (*env)->SetByteArrayRegion(env, arr, 0, (jsize)n, (const jbyte *)buf);
+    }
+    free(buf);
+    return arr;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_huffcart_core_libretro_LibretroCore_nativeLoadState(JNIEnv *env, jobject thiz,
+                                                             jbyteArray data) {
+    if (!p_retro_unserialize || !data)
+        return JNI_FALSE;
+    jsize n = (*env)->GetArrayLength(env, data);
+    if (n <= 0)
+        return JNI_FALSE;
+    jbyte *buf = (*env)->GetByteArrayElements(env, data, NULL);
+    if (!buf)
+        return JNI_FALSE;
+    jboolean ok = p_retro_unserialize(buf, (size_t)n) ? JNI_TRUE : JNI_FALSE;
+    (*env)->ReleaseByteArrayElements(env, data, buf, JNI_ABORT);
+    return ok;
 }
