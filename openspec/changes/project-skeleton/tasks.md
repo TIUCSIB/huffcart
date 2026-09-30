@@ -21,7 +21,7 @@
 ## 4. 核心接缝预留
 
 - [x] 4.1 `:core-bridge` 定义 `RetroCore` 接口占位（loadRom/runFrame/setButton/音频回调/KDoc 契约说明），附最小单元测试验证接口可实例化的假实现；验证 `gradlew :core-bridge:test` 通过（6/6 绿，JUnit Platform 运行）
-- [ ] 4.2 `:app` 预留游戏页路由占位（挂入导航图，页内为 SurfaceView 容器规划说明 + AGSL 特性检测点注释）；验证导航可达该占位页
+- [x] 4.2 `:app` 预留游戏页路由占位（挂入导航图，页内为 SurfaceView 容器规划说明 + AGSL 特性检测点注释）；验证导航可达该占位页（模拟器从空状态页点击入口进入，截图核对；游戏路由按设计隐藏底栏）
 
 ## 5. 集成验收
 
