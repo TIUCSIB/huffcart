@@ -19,8 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -47,6 +45,12 @@ import com.huffcart.app.ui.theme.HcChipBg
 import com.huffcart.app.ui.theme.HcRed
 import java.io.File
 import java.util.Locale
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import com.huffcart.app.R
 
 /** 游戏详情页（game-library）：hero 封面 + 标签 + 简介/文件信息 + 开始游戏 + 菜单移除。 */
 @Composable
@@ -143,21 +147,15 @@ fun DetailScreen(
                 )
             }
             Spacer(modifier = Modifier.height(32.dp))
-            Button(
-                onClick = onStartGame,
+            Image(
+                bitmap = ImageBitmap.imageResource(R.drawable.asset_btn_start),
+                contentDescription = "开始游戏",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White,
-                ),
-            ) {
-                Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
-                Spacer(modifier = Modifier.size(8.dp))
-                Text(text = "开始游戏", style = MaterialTheme.typography.titleMedium)
-            }
+                    .aspectRatio(335f / 90f)
+                    .clickable(onClick = onStartGame),
+                filterQuality = FilterQuality.None,
+            )
         }
     }
     if (confirmRemove) {

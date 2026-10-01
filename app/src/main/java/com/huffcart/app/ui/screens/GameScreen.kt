@@ -62,7 +62,6 @@ import com.huffcart.app.ui.theme.HcBannerTag
 import com.huffcart.app.ui.theme.HcCream
 import com.huffcart.app.ui.theme.HcGameBlack
 import com.huffcart.app.ui.theme.HcPanelDark
-import com.huffcart.app.ui.theme.HcPanelPressed
 import com.huffcart.app.ui.theme.HcRed
 import com.huffcart.app.ui.theme.HcRedDark
 import com.huffcart.app.ui.theme.PixelFontFamily
@@ -74,6 +73,12 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.imageResource
+import com.huffcart.app.R
 
 /**
  * 游戏运行屏（game-playback 能力的宿主，retro-ui-redesign 改版）：
@@ -169,7 +174,7 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White,
                 )
-                TextButton(onClick = onExit) { Text(text = "返回", color = HcPanelPressed) }
+                TextButton(onClick = onExit) { Text(text = "返回", color = HcRed) }
             }
         } else {
             val isPortrait =
@@ -268,12 +273,18 @@ private fun FamilyComputerBanner() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(HcRedDark),
+            .height(38.dp),
     ) {
+        Image(
+            bitmap = ImageBitmap.imageResource(R.drawable.asset_banner_red),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            filterQuality = FilterQuality.None,
+        )
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
-                .padding(vertical = 10.dp)
                 .background(HcBannerTag, RoundedCornerShape(4.dp))
                 .padding(horizontal = 16.dp, vertical = 4.dp),
         ) {
@@ -363,11 +374,18 @@ private class GameSession(context: Context, romName: String) {
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
-            surfaceRef.compareAndSet(holder, null)
+            // 与渲染循环互斥：确保回调返回时游戏线程已画完当前帧并放弃 canvas，
+            // 否则框架销毁 surface 与 lockCanvas 竞争会阻塞主线程（横竖屏切换时 ANR）
+            synchronized(surfaceMutex) {
+                surfaceRef.compareAndSet(holder, null)
+            }
         }
     }
 
     private val surfaceRef = AtomicReference<SurfaceHolder?>(null)
+
+    /** 渲染帧与 surface 销毁的互斥锁（见 surfaceDestroyed 注释）。 */
+    private val surfaceMutex = Object()
 
     // ---- 即时存档 / 快进（save-states / fast-forward 能力） ----
 
@@ -482,26 +500,38 @@ private class GameSession(context: Context, romName: String) {
                 }
             }
             // 渲染：整数倍缩放 letterbox（canvas 为所在区域的实际尺寸，分区/全屏自适应）
-            val holder = surfaceRef.get() ?: continue
+            val holder = surfaceRef.get()
+            if (holder == null) {
+                Thread.sleep(8)
+                continue
+            }
             val surface: Surface = holder.surface
-            if (surface == null || !surface.isValid) continue
+            if (surface == null || !surface.isValid) {
+                Thread.sleep(8)
+                continue
+            }
             val w = current.videoInfo.width
             val h = current.videoInfo.height
             val bmp = bitmap
                 ?.takeIf { it.width == w && it.height == h }
                 ?: Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { bitmap = it }
             bmp.setPixels(current.video, 0, w, 0, 0, w, h)
-            val canvas = holder.lockCanvas() ?: continue
-            try {
-                canvas.drawColor(android.graphics.Color.BLACK)
-                val scale = minOf(canvas.width / w, canvas.height / h).coerceAtLeast(1)
-                val dw = w * scale
-                val dh = h * scale
-                val left = (canvas.width - dw) / 2f
-                val top = (canvas.height - dh) / 2f
-                canvas.drawBitmap(bmp, null, RectF(left, top, left + dw, top + dh), paint)
-            } finally {
-                holder.unlockCanvasAndPost(canvas)
+            // lock/unlock 全程持锁，surfaceDestroyed 等本块结束才放行框架销毁
+            synchronized(surfaceMutex) {
+                runCatching {
+                    val canvas = holder.lockCanvas() ?: return@synchronized
+                    try {
+                        canvas.drawColor(android.graphics.Color.BLACK)
+                        val scale = minOf(canvas.width / w, canvas.height / h).coerceAtLeast(1)
+                        val dw = w * scale
+                        val dh = h * scale
+                        val left = (canvas.width - dw) / 2f
+                        val top = (canvas.height - dh) / 2f
+                        canvas.drawBitmap(bmp, null, RectF(left, top, left + dw, top + dh), paint)
+                    } finally {
+                        holder.unlockCanvasAndPost(canvas)
+                    }
+                }
             }
 
             framesSinceMark += factor

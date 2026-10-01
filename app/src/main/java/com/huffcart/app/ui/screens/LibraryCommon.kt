@@ -16,7 +16,6 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -40,6 +39,12 @@ import com.huffcart.app.ui.library.PlaceholderCover
 import com.huffcart.app.ui.theme.HcChipBg
 import com.huffcart.app.ui.theme.HcRed
 import java.io.File
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import com.huffcart.app.R
 
 /** 分类 chips 行：全部 + 6 分类，末尾「分类」入口（spec「分类筛选」）。 */
 @Composable
@@ -133,11 +138,13 @@ fun EmptyLibrary(onImport: () -> Unit, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            imageVector = Icons.Filled.SportsEsports,
+        Image(
+            bitmap = ImageBitmap.imageResource(R.drawable.asset_landscape),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.height(72.dp),
+            modifier = Modifier
+                .width(230.dp)
+                .aspectRatio(313f / 94f),
+            filterQuality = FilterQuality.None,
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(

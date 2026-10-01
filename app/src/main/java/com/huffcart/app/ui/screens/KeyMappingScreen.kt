@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -30,12 +29,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -47,10 +42,13 @@ import com.huffcart.app.ui.AppTopBar
 import com.huffcart.app.ui.game.KeyMappingStore
 import com.huffcart.core.bridge.RetroButton
 import com.huffcart.app.ui.theme.HcChipBg
-import com.huffcart.app.ui.theme.HcCream
-import com.huffcart.app.ui.theme.HcPanelButton
-import com.huffcart.app.ui.theme.HcPanelDark
 import com.huffcart.app.ui.theme.HcRed
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import com.huffcart.app.R
 
 private val mappingRows = listOf(
     RetroButton.UP to "上",
@@ -99,7 +97,14 @@ fun KeyMappingScreen(onBack: () -> Unit) {
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp),
             ) {
-                PadPreview()
+                Image(
+                    bitmap = ImageBitmap.imageResource(R.drawable.asset_gamepad),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(386f / 186f),
+                    filterQuality = FilterQuality.None,
+                )
                 Spacer(modifier = Modifier.height(16.dp))
                 mappingRows.forEachIndexed { index, (button, label) ->
                     MappingRow(
@@ -153,39 +158,6 @@ fun KeyMappingScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 }
 
-/** 控制布局预览面板（静态示意，纯 Canvas）。 */
-@Composable
-private fun PadPreview() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(150.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(HcPanelDark),
-    ) {
-        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-            val crossCx = size.width * 0.22f
-            val crossCy = size.height * 0.5f
-            val armW = size.width * 0.05f
-            val armL = size.width * 0.16f
-            drawRoundRect(
-                color = HcPanelButton,
-                topLeft = androidx.compose.ui.geometry.Offset(crossCx - armL / 2, crossCy - armW / 2),
-                size = androidx.compose.ui.geometry.Size(armL, armW),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f),
-            )
-            drawRoundRect(
-                color = HcPanelButton,
-                topLeft = androidx.compose.ui.geometry.Offset(crossCx - armW / 2, crossCy - armL / 2),
-                size = androidx.compose.ui.geometry.Size(armW, armL),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f),
-            )
-            drawCircle(color = HcRed, radius = size.height * 0.11f, center = androidx.compose.ui.geometry.Offset(size.width * 0.78f, size.height * 0.40f))
-            drawCircle(color = HcRed, radius = size.height * 0.11f, center = androidx.compose.ui.geometry.Offset(size.width * 0.62f, size.height * 0.58f))
-        }
-    }
-}
-
 @Composable
 private fun MappingRow(label: String, value: String, listening: Boolean, onClick: () -> Unit) {
     Row(
@@ -215,29 +187,16 @@ private fun MappingRow(label: String, value: String, listening: Boolean, onClick
     }
 }
 
-/** 卡带小图标（Canvas 矢量，INSERT CARTRIDGE 装饰）。 */
+/** 卡带小图标（素材切片，INSERT CARTRIDGE 装饰）。 */
 @Composable
 private fun CartridgeMark() {
-    androidx.compose.foundation.Canvas(
+    Image(
+        bitmap = ImageBitmap.imageResource(R.drawable.asset_cartridge),
+        contentDescription = null,
         modifier = Modifier
             .padding(end = 4.dp)
-            .height(16.dp)
-            .width(22.dp),
-    ) {
-        val w = size.width
-        val h = size.height
-        drawRoundRect(
-            color = HcRed,
-            topLeft = Offset.Zero,
-            size = Size(w, h * 0.82f),
-            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
-        )
-        drawRect(
-            color = HcCream,
-            topLeft = Offset(w * 0.22f, h * 0.22f),
-            size = Size(w * 0.56f, h * 0.28f),
-        )
-        drawRect(color = HcRed, topLeft = Offset(w * 0.14f, h * 0.86f), size = Size(w * 0.20f, h * 0.14f))
-        drawRect(color = HcRed, topLeft = Offset(w * 0.66f, h * 0.86f), size = Size(w * 0.20f, h * 0.14f))
-    }
+            .height(18.dp)
+            .aspectRatio(125f / 124f),
+        filterQuality = FilterQuality.None,
+    )
 }
