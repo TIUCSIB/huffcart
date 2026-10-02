@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 联机（netplay-lan）：NSD 发现与 TCP 输入流的系统硬性要求（Android 12+ 起
+         NsdService 强制校验 INTERNET）；查 Wi-Fi 状态需 ACCESS_NETWORK_STATE；
+         UDP 广播发现收包需 CHANGE_WIFI_MULTICAST_STATE（MulticastLock）。
+         封面抓取（game-cover-art）共用 INTERNET：仅 HTTPS 访问 thumbnails.libretro.com，
+         失败静默回退占位图，无遥测。
+         均为安装期权限，本应用仍零运行时权限、零存储权限 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

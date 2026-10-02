@@ -16,8 +16,8 @@ val HcChipBg = Color(0xFFEFE6D6)
 
 // 游戏屏专属深色（画面区黑底与控制面板，浅色主题的豁免区；色值取素材手柄实测）
 val HcGameBlack = Color(0xFF000000)
-val HcPanelDark = Color(0xFF2C2C2C) // 控制面板
-val HcPanelRecess = Color(0xFF333333) // 十字键凹槽圆
+val HcPanelDark = Color(0xFF1F1F1F) // 控制面板
+val HcPanelRecess = Color(0xFF161616) // 十字键凹槽圆
 val HcDpadArm = Color(0xFF373737) // 十字键臂
 val HcPadRed = Color(0xFFF22C2E) // A/B 红
 val HcPadRedDeep = Color(0xFFC21E20) // A/B 立体底影

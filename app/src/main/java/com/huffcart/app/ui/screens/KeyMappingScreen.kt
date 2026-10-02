@@ -1,5 +1,6 @@
 package com.huffcart.app.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,20 +31,31 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import android.view.KeyEvent
 import com.huffcart.app.ui.AppTopBar
+import com.huffcart.app.ui.game.ControlScheme
+import com.huffcart.app.ui.game.ControlSchemeStore
 import com.huffcart.app.ui.game.KeyMappingStore
 import com.huffcart.core.bridge.RetroButton
 import com.huffcart.app.ui.theme.HcChipBg
+import com.huffcart.app.ui.theme.HcOnLight
+import com.huffcart.app.ui.theme.HcOnLightVariant
+import com.huffcart.app.ui.theme.HcOutlineLight
 import com.huffcart.app.ui.theme.HcRed
+import com.huffcart.app.ui.theme.HcSurfaceLight
+import com.huffcart.app.ui.theme.PixelFontFamily
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.graphics.FilterQuality
@@ -66,6 +79,9 @@ fun KeyMappingScreen(onBack: () -> Unit) {
     val focusRequester = remember { FocusRequester() }
     var mapping by remember { mutableStateOf(KeyMappingStore.load(context)) }
     var listening by remember { mutableStateOf<RetroButton?>(null) }
+    // 控制形态（virtual-joystick）：切换即持久化，游戏屏下次进入时生效
+    var scheme by remember { mutableStateOf(ControlSchemeStore.load(context)) }
+    var schemeDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -106,6 +122,15 @@ fun KeyMappingScreen(onBack: () -> Unit) {
                     filterQuality = FilterQuality.None,
                 )
                 Spacer(modifier = Modifier.height(16.dp))
+                // 虚拟手柄样式（virtual-joystick）：十字键（默认）/ 摇杆
+                MappingRow(
+                    label = "虚拟手柄样式",
+                    value = if (scheme == ControlScheme.JOYSTICK) "摇杆" else "十字键",
+                    listening = false,
+                    onClick = { schemeDialog = true },
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                Spacer(modifier = Modifier.height(8.dp))
                 mappingRows.forEachIndexed { index, (button, label) ->
                     MappingRow(
                         label = label,
@@ -156,6 +181,89 @@ fun KeyMappingScreen(onBack: () -> Unit) {
         }
     }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    if (schemeDialog) {
+        SchemePickerDialog(
+            current = scheme,
+            onSelect = { option ->
+                scheme = option
+                ControlSchemeStore.save(context, option)
+                schemeDialog = false
+            },
+            onDismiss = { schemeDialog = false },
+        )
+    }
+}
+
+/** 复古单选弹窗（virtual-joystick 3.3 二轮：弃 Material AlertDialog，契合 FC 主题）：
+ *  简洁白卡（圆角、无描边阴影）+ 像素字标题 + FC 菜单式红色光标；
+ *  点选即生效并关闭（FC 菜单没有确认键），点卡片外关闭。 */
+@Composable
+private fun SchemePickerDialog(
+    current: ControlScheme,
+    onSelect: (ControlScheme) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 36.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(HcSurfaceLight)
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+        ) {
+                Text(
+                    text = "虚拟手柄样式",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = HcOnLight,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                listOf(
+                    ControlScheme.DPAD to "十字键",
+                    ControlScheme.JOYSTICK to "摇杆",
+                ).forEach { (option, label) ->
+                    val selected = option == current
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(option) }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // FC 菜单光标：占位对齐，选中亮红色三角
+                        Box(modifier = Modifier.size(width = 16.dp, height = 12.dp)) {
+                            if (selected) {
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    val path = Path().apply {
+                                        moveTo(0f, 0f)
+                                        lineTo(size.width, size.height / 2f)
+                                        lineTo(0f, size.height)
+                                        close()
+                                    }
+                                    drawPath(path, color = HcRed)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = label,
+                            fontFamily = PixelFontFamily,
+                            fontSize = 15.sp,
+                            color = if (selected) HcRed else HcOnLight,
+                        )
+                    }
+                    if (option != ControlScheme.JOYSTICK) {
+                        HorizontalDivider(color = HcOutlineLight)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "点选即生效",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HcOnLightVariant,
+                )
+        }
+    }
 }
 
 @Composable

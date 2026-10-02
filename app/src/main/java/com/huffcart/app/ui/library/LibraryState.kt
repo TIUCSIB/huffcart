@@ -21,11 +21,21 @@ class LibraryState {
     var query by mutableStateOf("")
     var genre by mutableStateOf<GenreCatalog.Genre?>(null)
 
+    /** 封面纪元：导入封面后自增，驱动各屏 [CoverImage] 按新 key 重读磁盘（game-cover-art 2.1）。 */
+    var coverEpoch by mutableStateOf(0)
+
     val filtered: List<File>
         get() = filterRoms(roms, query, genre)
 
+    /** 预抓取进程内只发一次：封面落盘持久，后续 refresh（导入/移除后）无需重跑。 */
+    private var prefetchStarted = false
+
     fun refresh(context: Context) {
         roms = RomLibrary.listRoms(context)
+        if (roms.isNotEmpty() && !prefetchStarted) {
+            prefetchStarted = true
+            CoverStore.prefetchAll(context, roms.map { it.nameWithoutExtension })
+        }
     }
 
     fun remove(context: Context, rom: File) {

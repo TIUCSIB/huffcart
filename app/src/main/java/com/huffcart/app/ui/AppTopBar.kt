@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.huffcart.app.ui.theme.HcRed
@@ -31,6 +32,8 @@ fun AppTopBar(
     title: String,
     onBack: (() -> Unit)? = null,
     badge: Boolean = false,
+    // 默认主题像素字；长文件名等场景可传系统字体保证可读性（详情页用）
+    titleStyle: TextStyle = MaterialTheme.typography.titleLarge,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     TopAppBar(
@@ -41,7 +44,7 @@ fun AppTopBar(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = titleStyle,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

@@ -34,8 +34,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.huffcart.app.ui.library.CoverImage
 import com.huffcart.app.ui.library.GenreCatalog
-import com.huffcart.app.ui.library.PlaceholderCover
 import com.huffcart.app.ui.theme.HcChipBg
 import com.huffcart.app.ui.theme.HcRed
 import java.io.File
@@ -45,6 +45,9 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.imageResource
 import com.huffcart.app.R
+
+/** 全 app 封面图统一比例：FC 原生 256:240（首页卡片 / 游戏库列表缩略 / 详情 hero）。 */
+val CoverAspect = 256f / 240f
 
 /** 分类 chips 行：全部 + 6 分类，末尾「分类」入口（spec「分类筛选」）。 */
 @Composable
@@ -182,7 +185,7 @@ fun RemoveGameDialog(gameName: String, onConfirm: () -> Unit, onDismiss: () -> U
 
 /** 列表行（游戏库 tab / 分类列表共用）：缩略封面 + 名称 + FC 角标。 */
 @Composable
-fun GameListRow(rom: File, onClick: () -> Unit) {
+fun GameListRow(rom: File, coverEpoch: Int, onClick: () -> Unit) {
     val display = rom.nameWithoutExtension
     Row(
         modifier = Modifier
@@ -190,11 +193,12 @@ fun GameListRow(rom: File, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PlaceholderCover(
+        CoverImage(
             gameName = display,
+            version = coverEpoch,
             modifier = Modifier
                 .width(56.dp)
-                .height(42.dp)
+                .aspectRatio(CoverAspect)
                 .clip(RoundedCornerShape(8.dp)),
         )
         Spacer(modifier = Modifier.width(12.dp))

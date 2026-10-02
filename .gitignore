@@ -10,3 +10,6 @@ build/
 .kotlin/
 # 核心编译产物由 scripts/build-core.sh 再生成，不入库
 app/src/main/jniLibs/
+
+# 内置联机 ROM（构建期由 scripts/sync-bundled-roms.sh 放入，本体不入库）
+app/src/main/assets/roms/

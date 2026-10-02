@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+（v31）系统 SplashScreen：真机厂商默认 splash 会用主题 colorBackground
+     （深色 Material → 深灰底）或卡片式展示，与品牌启动页（红底）断裂。
+     覆盖为品牌深红底 + 默认图标，与应用内 SplashScreen（HcRedDark 全屏）无缝衔接；
+     系统栏保持透明（与 Starting 主题一致）。 -->
+<resources>
+    <style name="Theme.Huffcart.Starting" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

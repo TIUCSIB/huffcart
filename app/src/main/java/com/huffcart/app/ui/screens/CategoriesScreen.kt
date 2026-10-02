@@ -136,7 +136,7 @@ fun CategoryScreen(
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(games, key = { it.name }) { rom ->
-                    GameListRow(rom = rom, onClick = { onOpenDetail(rom.name) })
+                    GameListRow(rom = rom, coverEpoch = state.coverEpoch, onClick = { onOpenDetail(rom.name) })
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         color = MaterialTheme.colorScheme.outline,

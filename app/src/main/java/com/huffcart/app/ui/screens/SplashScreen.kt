@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.dp
 import com.huffcart.app.R
+import com.huffcart.app.ui.HideSystemNavigationBars
 import com.huffcart.app.ui.theme.HcCream
 import com.huffcart.app.ui.theme.HcRedDark
 import kotlinx.coroutines.delay
@@ -34,6 +35,7 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun SplashScreen(onDone: () -> Unit) {
+    HideSystemNavigationBars()
     LaunchedEffect(Unit) {
         delay(1200)
         onDone()
