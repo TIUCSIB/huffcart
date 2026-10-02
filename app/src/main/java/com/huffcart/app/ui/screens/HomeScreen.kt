@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
@@ -56,7 +55,7 @@ import java.io.File
 import kotlinx.coroutines.launch
 
 /**
- * 首页（game-library「封面墙网格」）：红顶栏（品牌 + FC 角标 + 联机 + 搜索 + 导入菜单）
+ * 首页（game-library「封面墙网格」）：红顶栏（品牌 + FC 角标 + 搜索 + 导入菜单）
  * + 分类 chips（末尾「分类」入口）+ 2 列封面卡片（⋮ 菜单移除）。
  */
 @Composable
@@ -64,7 +63,6 @@ fun HomeScreen(
     state: LibraryState,
     onOpenDetail: (String) -> Unit,
     onOpenCategories: () -> Unit,
-    onOpenNetplay: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var searchActive by remember { mutableStateOf(false) }
@@ -98,9 +96,6 @@ fun HomeScreen(
                 title = "吹卡带",
                 badge = true,
                 actions = {
-                    IconButton(onClick = onOpenNetplay) {
-                        Icon(Icons.Filled.Groups, contentDescription = "联机")
-                    }
                     IconButton(onClick = {
                         searchActive = !searchActive
                         if (!searchActive) state.query = ""

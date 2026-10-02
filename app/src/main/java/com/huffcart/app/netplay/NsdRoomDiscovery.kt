@@ -4,11 +4,16 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 
-/** 一间被发现的房间（NSD 解析结果）。 */
+/** 一间被发现的房间（NSD 解析结果 / UDP 广播命中）。
+ *  capacity/count/gameName 由广播负载携带（v2），缺省时卡片按未知容量呈现。 */
 data class DiscoveredRoom(
     val serviceName: String,
     val host: String,
     val port: Int,
+    val hostNickname: String = "",
+    val capacity: Int = 0,
+    val playerCount: Int = 1,
+    val gameName: String = "",
 )
 
 /**
@@ -28,12 +33,14 @@ class NsdRoomDiscovery(context: Context) {
     private val pendingResolves = HashMap<String, NsdServiceInfo>()
     private var resolving = false
 
-    fun registerRoom(roomName: String, port: Int) {
+    fun registerRoom(roomName: String, port: Int, meta: String) {
         unregisterRoom()
         val info = NsdServiceInfo().apply {
             serviceName = roomName
             serviceType = SERVICE_TYPE
             setPort(port)
+            // 广播负载（房间名之外的房间信息）：txt attribute，v2 卡片数据源
+            runCatching { setAttribute("meta", meta) }
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(serviceInfo: NsdServiceInfo) = Unit
@@ -96,10 +103,14 @@ class NsdRoomDiscovery(context: Context) {
             override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
                 val host = serviceInfo.host?.hostAddress
                 val name = serviceInfo.serviceName ?: ""
+                val meta = serviceInfo.attributes?.get("meta")
+                    ?.toString(Charsets.UTF_8) ?: ""
                 synchronized(pendingResolves) {
                     pendingResolves.remove(name)
                     resolving = false
-                    if (host != null) onFound?.invoke(DiscoveredRoom(name, host, serviceInfo.port))
+                    if (host != null) {
+                        onFound?.invoke(parseMeta(DiscoveredRoom(name, host, serviceInfo.port), meta))
+                    }
                     pumpResolve()
                 }
             }
@@ -117,5 +128,17 @@ class NsdRoomDiscovery(context: Context) {
 
     private companion object {
         const val SERVICE_TYPE = "_huffcart._tcp."
+
+        /** 广播 meta（hostNick|capacity|count|game）解析进房间条目；字段缺失用缺省。 */
+        fun parseMeta(room: DiscoveredRoom, meta: String): DiscoveredRoom {
+            if (meta.isBlank()) return room
+            val parts = meta.split("|")
+            return room.copy(
+                hostNickname = parts.getOrNull(0).orEmpty(),
+                capacity = parts.getOrNull(1)?.toIntOrNull() ?: 0,
+                playerCount = parts.getOrNull(2)?.toIntOrNull() ?: 1,
+                gameName = parts.getOrNull(3).orEmpty(),
+            )
+        }
     }
 }

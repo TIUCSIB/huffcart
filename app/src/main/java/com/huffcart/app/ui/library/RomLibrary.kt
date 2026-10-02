@@ -5,7 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.File
 
-/** ROM 库文件操作（原 LibraryScreen 内联逻辑抽出，供首页/游戏库/详情共用）。 */
+/** ROM 库文件操作（供首页/详情共用）。 */
 object RomLibrary {
 
     sealed interface ImportResult {

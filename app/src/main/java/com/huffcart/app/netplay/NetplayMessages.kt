@@ -9,11 +9,14 @@ import java.util.zip.CRC32
  * 联机线协议（design 决策 4）：帧格式 `u32 载荷长度 + u8 类型 + 载荷`，
  * 多字节整数一律大端。线格式不兼容变更时递增 [NETPLAY_PROTOCOL_VERSION]。
  *
+ * v2（netplay-lobby-v2）：Seat 扩到 P1–P4（PlayerList 席位字节 0–3）、Input
+ * 携带四席位掩码、Welcome 携带入座席位与房间容量、新增 Ping/Pong 心跳。
+ *
  * 掩码位布局与 LibretroCore.setButton 保持逐位一致（core-native 模块，
  * bit = 1 << libretro device id：B0 SELECT2 START3 UP4 DOWN5 LEFT6 RIGHT7 A8），
  * 两处必须同改——A 键在 bit 8，故线上掩码为 u16。
  */
-const val NETPLAY_PROTOCOL_VERSION: Int = 1
+const val NETPLAY_PROTOCOL_VERSION: Int = 2
 
 /** 手输 IP 加入使用的默认端口；NSD 发现的服务携带房主实际监听端口。 */
 const val NETPLAY_DEFAULT_PORT: Int = 47477
@@ -24,7 +27,7 @@ const val DESYNC_CHECK_PERIOD: Int = 64
 /** 帧长合法性上界（状态快照数百 KB，8MB 足够；超出即判协议错误断开）。 */
 const val MAX_FRAME_BYTES: Int = 8 * 1024 * 1024
 
-enum class Seat(val label: String) { P1("P1"), P2("P2") }
+enum class Seat(val label: String) { P1("P1"), P2("P2"), P3("P3"), P4("P4") }
 
 data class PlayerInfo(val seat: Seat, val nickname: String)
 
@@ -42,7 +45,11 @@ sealed class NetplayMessage {
         val nickname: String,
     ) : NetplayMessage()
 
-    data class Welcome(val hostNickname: String) : NetplayMessage()
+    data class Welcome(
+        val hostNickname: String,
+        val seat: Seat,
+        val capacity: Int,
+    ) : NetplayMessage()
 
     data class Reject(val reason: RejectReason) : NetplayMessage()
 
@@ -73,18 +80,25 @@ sealed class NetplayMessage {
     data object Leave : NetplayMessage()
 
     /**
-     * 房主 → 加入端，每模拟帧一条：帧号 + 双方输入掩码；
-     * 帧号每 [DESYNC_CHECK_PERIOD] 整除时载荷尾部追加该帧视频 CRC32。
+     * 房主 → 加入端，每模拟帧一条：帧号 + 四席位输入掩码（普通双人游戏
+     * P3/P4 恒为 0）；帧号每 [DESYNC_CHECK_PERIOD] 整除时载荷尾部追加该帧视频 CRC32。
      */
     data class Input(
         val frame: Int,
         val p1Mask: Int,
         val p2Mask: Int,
+        val p3Mask: Int,
+        val p4Mask: Int,
         val videoCrc32: Long?,
     ) : NetplayMessage()
 
-    /** 加入端 → 房主：本机（P2）掩码，变化即发，另作 0.5s 级保活。 */
-    data class ClientInput(val p2Mask: Int) : NetplayMessage()
+    /** 加入端 → 房主：本机席位的掩码，变化即发，另作 2s 级保活。 */
+    data class ClientInput(val mask: Int) : NetplayMessage()
+
+    /** 双向心跳（房间长驻保活）：房间/大厅阶段周期互发，对局阶段停发。 */
+    data object Ping : NetplayMessage()
+
+    data object Pong : NetplayMessage()
 }
 
 object NetplayCodec {
@@ -109,6 +123,7 @@ object NetplayCodec {
             is NetplayMessage.Welcome -> {
                 buf.put(TYPE_WELCOME)
                 putString(buf, msg.hostNickname)
+                buf.put(msg.seat.ordinal.toByte()).putShort(msg.capacity.toShort())
             }
             is NetplayMessage.Reject -> {
                 buf.put(TYPE_REJECT).put(msg.reason.ordinal.toByte())
@@ -116,7 +131,7 @@ object NetplayCodec {
             is NetplayMessage.PlayerList -> {
                 buf.put(TYPE_PLAYER_LIST).put(msg.players.size.toByte())
                 msg.players.forEach { p ->
-                    buf.put(if (p.seat == Seat.P1) 0 else 1)
+                    buf.put(p.seat.ordinal.toByte())
                     putString(buf, p.nickname)
                 }
             }
@@ -137,9 +152,13 @@ object NetplayCodec {
             is NetplayMessage.Input -> {
                 buf.put(TYPE_INPUT).putInt(msg.frame).putShort(msg.p1Mask.toShort())
                     .putShort(msg.p2Mask.toShort())
+                    .putShort(msg.p3Mask.toShort())
+                    .putShort(msg.p4Mask.toShort())
                 if (isChecksumFrame(msg.frame)) buf.putLong(msg.videoCrc32 ?: 0L)
             }
-            is NetplayMessage.ClientInput -> buf.put(TYPE_CLIENT_INPUT).putShort(msg.p2Mask.toShort())
+            is NetplayMessage.ClientInput -> buf.put(TYPE_CLIENT_INPUT).putShort(msg.mask.toShort())
+            is NetplayMessage.Ping -> buf.put(TYPE_PING)
+            is NetplayMessage.Pong -> buf.put(TYPE_PONG)
         }
         return buf.flip() as ByteBuffer
     }
@@ -151,7 +170,11 @@ object NetplayCodec {
             appVersion = getString(payload),
             nickname = getString(payload),
         )
-        TYPE_WELCOME -> NetplayMessage.Welcome(getString(payload))
+        TYPE_WELCOME -> NetplayMessage.Welcome(
+            hostNickname = getString(payload),
+            seat = Seat.entries.getOrNull(payload.get().toInt()) ?: Seat.P2,
+            capacity = payload.short.toInt() and 0xFFFF,
+        )
         TYPE_REJECT -> RejectReason.entries.getOrNull(payload.get().toInt())?.let {
             NetplayMessage.Reject(it)
         }
@@ -159,7 +182,7 @@ object NetplayCodec {
             val n = payload.get().toInt() and 0xFF
             val players = ArrayList<PlayerInfo>(n)
             repeat(n) {
-                val seat = if (payload.get().toInt() == 0) Seat.P1 else Seat.P2
+                val seat = Seat.entries.getOrNull(payload.get().toInt()) ?: Seat.P2
                 players.add(PlayerInfo(seat, getString(payload)))
             }
             NetplayMessage.PlayerList(players)
@@ -189,6 +212,8 @@ object NetplayCodec {
                 frame = frame,
                 p1Mask = payload.short.toInt() and 0xFFFF,
                 p2Mask = payload.short.toInt() and 0xFFFF,
+                p3Mask = payload.short.toInt() and 0xFFFF,
+                p4Mask = payload.short.toInt() and 0xFFFF,
                 videoCrc32 = if (isChecksumFrame(frame)) {
                     payload.long.toLong() and 0xFFFFFFFFL
                 } else {
@@ -197,6 +222,8 @@ object NetplayCodec {
             )
         }
         TYPE_CLIENT_INPUT -> NetplayMessage.ClientInput(payload.short.toInt() and 0xFFFF)
+        TYPE_PING -> NetplayMessage.Ping
+        TYPE_PONG -> NetplayMessage.Pong
         else -> null
     }
 
@@ -213,6 +240,8 @@ object NetplayCodec {
     private const val TYPE_LEAVE: Byte = 9
     private const val TYPE_INPUT: Byte = 10
     private const val TYPE_CLIENT_INPUT: Byte = 11
+    private const val TYPE_PING: Byte = 12
+    private const val TYPE_PONG: Byte = 13
 
     private fun putString(buf: ByteBuffer, s: String) {
         val bytes = s.encodeToByteArray()

@@ -3,10 +3,11 @@ package com.huffcart.app.netplay
 import java.util.concurrent.LinkedBlockingQueue
 
 /**
- * 加入端会话（design 决策 1/2）：LOBBY（握手、玩家列表、校验房主选的游戏）
+ * 加入端会话（design 决策 1/2）：LOBBY（握手、拿到席位、校验房主建房所选游戏）
  * → WAIT_START（收 Start+快照，导航进游戏屏）→ PLAYING（跟随主机节拍）。
  * 加入端游戏循环以 [awaitInput] 取到的主机帧输入为节拍；本机输入经
  * [sendLocalMask] 上送（变化即发 + 保活），核心内不本地注入。
+ * 心跳：回复房主的 [Ping]（Pong），房主读循环靠它维持大厅期存活。
  */
 class JoinSession(
     private val endpoint: NetplayEndpoint,
@@ -15,7 +16,7 @@ class JoinSession(
     private val romLookup: (String) -> RomFileInfo?,
 ) {
 
-    var onWelcome: ((hostNickname: String) -> Unit)? = null
+    var onWelcome: ((hostNickname: String, seat: Seat, capacity: Int) -> Unit)? = null
     var onPlayers: ((List<PlayerInfo>) -> Unit)? = null
     var onGamePicked: ((romName: String, localOk: Boolean, localReason: String) -> Unit)? = null
     var onStartReceived: ((state: ByteArray) -> Unit)? = null
@@ -57,7 +58,7 @@ class JoinSession(
 
     private fun route(msg: NetplayMessage) {
         when (msg) {
-            is NetplayMessage.Welcome -> onWelcome?.invoke(msg.hostNickname)
+            is NetplayMessage.Welcome -> onWelcome?.invoke(msg.hostNickname, msg.seat, msg.capacity)
             is NetplayMessage.Reject -> {
                 val reason = when (msg.reason) {
                     RejectReason.VERSION_MISMATCH -> "双方版本不一致，请更新到相同版本"
@@ -99,6 +100,7 @@ class JoinSession(
                 consumed = msg
                 inputQueue.offer(msg)
             }
+            is NetplayMessage.Ping -> endpoint.send(NetplayMessage.Pong)
             else -> Unit
         }
     }

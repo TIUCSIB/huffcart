@@ -71,13 +71,6 @@ private val ArrowWhite = Color(0xFFF2F2F2)
  * 按下红色高亮（spec「虚拟手柄输入」），交互逻辑与横竖屏共用组件不变。
  */
 
-/** 触觉反馈：按下时轻震一下（游戏手柄手感）。 */
-@Composable
-private fun rememberPadHaptic(): () -> Unit {
-    val view = androidx.compose.ui.platform.LocalView.current
-    return remember { { view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP) } }
-}
-
 // 十字键专用死区：远小于摇杆（0.25/0.20 会让十字中心一大片点按无反应）
 private const val DPAD_DEAD_ZONE = 0.12f
 private const val DPAD_EXIT_ZONE = 0.10f
@@ -144,7 +137,7 @@ fun DpadControl(
     translucent: Boolean = false,
     onButton: (RetroButton, Boolean) -> Unit,
 ) {
-    val haptic = rememberPadHaptic()
+    val haptic = rememberPadFeedback()
     var pressedDirs by remember { mutableStateOf<Set<RetroButton>>(emptySet()) }
     val alphaMul = if (translucent) 0.55f else 1f
     // 十字朝按压方向偏移（跷跷板倾斜）：按「右」十字右移
@@ -320,7 +313,7 @@ private fun RoundPadButton(
     onButton: (RetroButton, Boolean) -> Unit,
 ) {
     var pressed by remember { mutableStateOf(false) }
-    val haptic = rememberPadHaptic()
+    val haptic = rememberPadFeedback()
     val alphaMul = if (translucent) 0.55f else 1f
     val label = if (button == RetroButton.A) "A" else "B"
     // 弹簧下沉至与投影齐平（按进面板）+ 提亮 alpha 动画
@@ -427,7 +420,7 @@ private fun Pill(
     onButton: (RetroButton, Boolean) -> Unit,
 ) {
     var pressed by remember { mutableStateOf(false) }
-    val haptic = rememberPadHaptic()
+    val haptic = rememberPadFeedback()
     val alphaMul = if (translucent) 0.55f else 1f
     // 弹簧下沉至与投影齐平（按进面板）
     val offsetY by animateDpAsState(
@@ -518,7 +511,7 @@ fun JoystickControl(
     translucent: Boolean = false,
     onButton: (RetroButton, Boolean) -> Unit,
 ) {
-    val haptic = rememberPadHaptic()
+    val haptic = rememberPadFeedback()
     var dragging by remember { mutableStateOf(false) }
     var dirs by remember { mutableStateOf<Set<RetroButton>>(emptySet()) }
     // 帽位移（px，相对中心）：按住直接赋值跟手；松手由 LaunchedEffect 从松手点弹簧回零
@@ -714,7 +707,9 @@ fun GamepadPanel(
     }
 }
 
-/** 横屏全屏浮层装配：方向控制（十字键/摇杆按 scheme）居左、A/B 居右、Select/Start 底部居中。 */
+/** 横屏全屏浮层装配：方向控制（十字键/摇杆按 scheme）居左、A/B 居右、Select/Start 底部居中。
+ *  两侧集群整体下移（真机反馈：垂直居中太偏上）并内收（真机反馈：贴边太靠外）——
+ *  下移 70dp 落到拇指热区（约屏高 2/3 处），左右各内收 60dp 向画面靠拢。 */
 @Composable
 fun PadControlsOverlay(
     onButton: (RetroButton, Boolean) -> Unit,
@@ -727,7 +722,8 @@ fun PadControlsOverlay(
                 size = 150.dp,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = 20.dp),
+                    .padding(start = 60.dp)
+                    .offset(y = 70.dp),
                 translucent = true,
                 onButton = onButton,
             )
@@ -735,8 +731,9 @@ fun PadControlsOverlay(
             JoystickControl(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = 20.dp)
-                    .size(150.dp),
+                    .padding(start = 60.dp)
+                    .size(150.dp)
+                    .offset(y = 70.dp),
                 translucent = true,
                 onButton = onButton,
             )
@@ -744,7 +741,8 @@ fun PadControlsOverlay(
         AbButtons(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 20.dp),
+                .padding(end = 60.dp)
+                .offset(y = 70.dp),
             translucent = true,
             onButton = onButton,
         )

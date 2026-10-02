@@ -21,9 +21,11 @@ class JoinSessionTest {
         val (hostEnd, joinerEnd) = LoopbackEndpoint.pair()
         val hostIn = Collector().also { it.attach(hostEnd) }
         var welcome: String? = null
+        var welcomeSeat: Seat? = null
+        var welcomeCapacity = 0
         var players: List<PlayerInfo>? = null
         val join = JoinSession(joinerEnd, "0.1.0", "小刚", romLookup = { null })
-        join.onWelcome = { welcome = it }
+        join.onWelcome = { nick, seat, cap -> welcome = nick; welcomeSeat = seat; welcomeCapacity = cap }
         join.onPlayers = { players = it }
 
         hostEnd.pump() // 构造时入箱的 HELLO
@@ -32,7 +34,7 @@ class JoinSessionTest {
             hostIn.filterIs<NetplayMessage.Hello>().single(),
         )
 
-        hostEnd.send(NetplayMessage.Welcome("阿吹"))
+        hostEnd.send(NetplayMessage.Welcome("阿吹", Seat.P2, 4))
         hostEnd.send(
             NetplayMessage.PlayerList(
                 listOf(PlayerInfo(Seat.P1, "阿吹"), PlayerInfo(Seat.P2, "小刚")),
@@ -40,6 +42,8 @@ class JoinSessionTest {
         )
         joinerEnd.pump()
         assertEquals("阿吹", welcome)
+        assertEquals(Seat.P2, welcomeSeat)
+        assertEquals(4, welcomeCapacity)
         assertEquals(2, players?.size)
     }
 
@@ -139,8 +143,8 @@ class JoinSessionTest {
             hostIn.filterIs<NetplayMessage.ClientInput>().single(),
         )
 
-        hostEnd.send(NetplayMessage.Input(1, 0x01, 0x00, null))
-        hostEnd.send(NetplayMessage.Input(2, 0x01, 0x14, null))
+        hostEnd.send(NetplayMessage.Input(1, 0x01, 0x00, 0, 0, null))
+        hostEnd.send(NetplayMessage.Input(2, 0x01, 0x14, 0, 0, null))
         joinerEnd.pump()
         assertEquals(1, join.awaitInput(100)?.frame)
         assertEquals(2, join.awaitInput(100)?.frame)
@@ -154,8 +158,8 @@ class JoinSessionTest {
         val join = JoinSession(joinerEnd, "0.1.0", "小刚", romLookup = { null })
         join.onDesync = { desyncFrame = it }
 
-        hostEnd.send(NetplayMessage.Input(1, 0, 0, null))
-        hostEnd.send(NetplayMessage.Input(64, 0, 0, 0xAAL)) // 帧号跳变：2..63 丢失
+        hostEnd.send(NetplayMessage.Input(1, 0, 0, 0, 0, null))
+        hostEnd.send(NetplayMessage.Input(64, 0, 0, 0, 0, 0xAAL)) // 帧号跳变：2..63 丢失
         joinerEnd.pump()
         assertEquals(64, desyncFrame)
         // 收到的帧仍按序全部消费（失同步是检测而非纠正）；两帧先后出队
@@ -166,7 +170,7 @@ class JoinSessionTest {
         assertEquals(64, desyncFrame)
 
         desyncFrame = -1
-        hostEnd.send(NetplayMessage.Input(65, 0, 0, null)) // 帧号恢复连续
+        hostEnd.send(NetplayMessage.Input(65, 0, 0, 0, 0, null)) // 帧号恢复连续
         joinerEnd.pump()
         assertEquals(-1, desyncFrame)
     }

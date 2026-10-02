@@ -42,9 +42,14 @@ import androidx.compose.ui.unit.dp
 import com.huffcart.app.ui.AppTopBar
 import kotlinx.coroutines.launch
 
-/** 我的（承载设置，app-shell「设置页结构」）：分组列表 + 图标；按键设置可进入，占位行禁用态。 */
+/** 我的（承载设置，app-shell「设置页结构」）：分组列表 + 图标；四个设置入口均可进入。 */
 @Composable
-fun SettingsScreen(onOpenKeyMapping: () -> Unit) {
+fun SettingsScreen(
+    onOpenKeyMapping: () -> Unit,
+    onOpenDisplaySettings: () -> Unit,
+    onOpenAudioSettings: () -> Unit,
+    onOpenSaveManagement: () -> Unit,
+) {
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -66,9 +71,24 @@ fun SettingsScreen(onOpenKeyMapping: () -> Unit) {
                     enabled = true,
                     onClick = onOpenKeyMapping,
                 )
-                SettingRow(icon = Icons.Filled.Monitor, title = "画面设置", note = "即将推出")
-                SettingRow(icon = Icons.Filled.VolumeUp, title = "声音设置", note = "即将推出")
-                SettingRow(icon = Icons.Filled.Save, title = "存档管理", note = "即将推出")
+                SettingRow(
+                    icon = Icons.Filled.Monitor,
+                    title = "画面设置",
+                    enabled = true,
+                    onClick = onOpenDisplaySettings,
+                )
+                SettingRow(
+                    icon = Icons.Filled.VolumeUp,
+                    title = "声音设置",
+                    enabled = true,
+                    onClick = onOpenAudioSettings,
+                )
+                SettingRow(
+                    icon = Icons.Filled.Save,
+                    title = "存档管理",
+                    enabled = true,
+                    onClick = onOpenSaveManagement,
+                )
                 GroupHeader("其他")
                 SettingRow(icon = Icons.Filled.Info, title = "关于我们", enabled = true) {
                     showAbout = true

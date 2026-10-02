@@ -26,7 +26,7 @@ class NetplayLinkTest {
                     is NetplayMessage.Hello -> {
                         hostMessage = msg
                         hostGotHello.countDown()
-                        link.send(NetplayMessage.Welcome("阿吹"))
+                        link.send(NetplayMessage.Welcome("阿吹", Seat.P2, 2))
                     }
                     else -> Unit
                 }

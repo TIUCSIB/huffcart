@@ -5,13 +5,22 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * 房主端会话（design 决策 1/2）：LOBBY（接纳、握手、选游戏）→
- * STARTING（发出 Start+快照，等加入端 GAME_READY）→ PLAYING（逐帧输入流）。
- * 房主是权威端，保持自己的音频节拍；加入端输入经最新值槽在帧首取用。
+ * 房主端单席位会话（design 决策 1/2）：一个加入端占用一个席位（P2–P4 由
+ * NetplayManager 按空位分配），多席位 = 多个本会话实例并行。阶段：
+ * LOBBY（接纳、握手、入座校验）→ STARTING（发出 Start+快照，等 GAME_READY）
+ * → PLAYING（逐帧输入流）。
+ *
+ * 心跳（netplay-lobby-v2「房间长驻保活」）：大厅阶段房主每 10s 发 [Ping]，
+ * 加入端回 [Pong]——加入端的读循环靠它维持（房主侧本就有加入端 2s 级
+ * CLIENT_INPUT 喂着）；对局阶段停发（逐帧输入流即保活）。
  */
 class HostSession(
     private val endpoint: NetplayEndpoint,
     private val hostNickname: String,
+    /** 本会话加入端被分配的席位（P2–P4）。 */
+    val joinerSeat: Seat,
+    /** 房间容量（Welcome 携带；构造期传入避免 Hello 异步竞态）。 */
+    private val capacity: Int,
 ) {
 
     var onJoinerJoined: ((PlayerInfo) -> Unit)? = null
@@ -33,17 +42,34 @@ class HostSession(
 
     enum class Phase { LOBBY, STARTING, PLAYING }
 
-    private val remoteP2Mask = AtomicInteger(0)
+    @Volatile
+    private var closed = false
+
+    private val remoteMask = AtomicInteger(0)
     private var gameReadyLatch = CountDownLatch(0)
 
     init {
         endpoint.onMessage(::route)
         endpoint.onDisconnect { reason ->
+            closed = true
             val left = joiner
             joiner = null
             if (left != null) onJoinerLeft?.invoke(reason)
             onSessionClosed?.invoke()
         }
+        Thread({
+            while (!closed && phase != Phase.PLAYING) {
+                try {
+                    // 先睡后发：握手期本身有 Welcome/PlayerList/PickGame 流量，
+                    // 首个心跳延后 10s 即可维持加入端 30s 读超时
+                    Thread.sleep(10_000)
+                } catch (_: InterruptedException) {
+                    break
+                }
+                if (closed || phase == Phase.PLAYING) break
+                endpoint.send(NetplayMessage.Ping)
+            }
+        }, "netplay-host-heartbeat").apply { isDaemon = true; start() }
     }
 
     private fun route(msg: NetplayMessage) {
@@ -55,13 +81,8 @@ class HostSession(
                     return
                 }
                 if (joiner != null) return // 满员拒绝由上层在接纳前处理
-                joiner = PlayerInfo(Seat.P2, msg.nickname)
-                endpoint.send(NetplayMessage.Welcome(hostNickname))
-                endpoint.send(
-                    NetplayMessage.PlayerList(
-                        listOf(PlayerInfo(Seat.P1, hostNickname), joiner!!),
-                    ),
-                )
+                joiner = PlayerInfo(joinerSeat, msg.nickname)
+                endpoint.send(NetplayMessage.Welcome(hostNickname, joinerSeat, capacity))
                 onJoinerJoined?.invoke(joiner!!)
             }
             is NetplayMessage.Ready -> onPickResult?.invoke(msg.ok, msg.reason)
@@ -78,12 +99,18 @@ class HostSession(
                 joiner = null
                 if (left != null) onJoinerLeft?.invoke("对方退出了房间")
             }
-            is NetplayMessage.ClientInput -> remoteP2Mask.set(msg.p2Mask)
+            is NetplayMessage.ClientInput -> remoteMask.set(msg.mask)
+            is NetplayMessage.Ping -> endpoint.send(NetplayMessage.Pong)
             else -> Unit
         }
     }
 
     // ---- 房间动作（UI 线程） ----
+
+    /** 向本席位加入端广播最新成员列表（席位/昵称）。 */
+    fun sendPlayers(players: List<PlayerInfo>) {
+        endpoint.send(NetplayMessage.PlayerList(players))
+    }
 
     fun pickGame(romName: String, size: Long, crc32: Long) {
         endpoint.send(NetplayMessage.PickGame(romName, size, crc32))
@@ -103,20 +130,22 @@ class HostSession(
     }
 
     fun leave() {
+        closed = true
         endpoint.send(NetplayMessage.Leave)
         endpoint.close()
     }
 
     fun close() {
+        closed = true
         endpoint.close()
     }
 
     // ---- 对局动作（游戏线程） ----
 
-    fun sendInputFrame(frame: Int, p1Mask: Int, p2Mask: Int, videoCrc32: Long?) {
-        endpoint.send(NetplayMessage.Input(frame, p1Mask, p2Mask, videoCrc32))
+    fun sendInputFrame(frame: Int, p1: Int, p2: Int, p3: Int, p4: Int, videoCrc32: Long?) {
+        endpoint.send(NetplayMessage.Input(frame, p1, p2, p3, p4, videoCrc32))
     }
 
-    /** 帧首取用加入端最新输入掩码（最新值槽，design 决策 5）。 */
-    fun latestRemoteP2Mask(): Int = remoteP2Mask.get()
+    /** 帧首取用本席位加入端最新输入掩码（最新值槽，design 决策 5）。 */
+    fun latestRemoteMask(): Int = remoteMask.get()
 }

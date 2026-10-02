@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.CRC32
 
@@ -16,8 +17,11 @@ import java.util.zip.CRC32
 data class RoomUi(
     val isHost: Boolean,
     val players: List<PlayerInfo>,
+    /** 建房所选容量（2–4）；加入端经 Welcome 获知。 */
+    val capacity: Int,
     val pickedGame: PickedGameUi?,
     val pickMessage: String?,
+    /** 全部加入端均已入座并通过 ROM 校验（房主可开局）。 */
     val joinerReady: Boolean,
     val startRequested: Boolean,
     /** 解散级事件：触发房间屏自动退出（仅加入端在房主离开时出现） */
@@ -25,7 +29,8 @@ data class RoomUi(
     /** 非致命提示（如"对方已退出"）：仅展示，房间保持开放 */
     val notice: String?,
 ) {
-    val full: Boolean get() = players.size >= 2
+    val full: Boolean get() = capacity in 2..4 && players.size >= capacity
+    val playerCount: Int get() = players.size
 }
 
 data class PickedGameUi(
@@ -38,10 +43,10 @@ data class PickedGameUi(
 class NetplayGameSetup(
     val role: Seat,
     val romName: String,
-    val opponentNickname: String,
-    val hostSession: HostSession?,
-    val joinSession: JoinSession?,
+    /** 对局全体成员（含自己），横幅展示成员昵称/席位。 */
+    val members: List<PlayerInfo>,
     val joinerState: ByteArray?,
+    val joinSession: JoinSession?,
 )
 
 /** 对局中事件：GameScreen 注册监听（pill 提示 / 退出对局）。 */
@@ -51,10 +56,9 @@ sealed interface NetplayGameEvent {
 }
 
 /**
- * 联机流程的总装（进程级单例）：大厅（发现/加入）、房间（建/选游戏/开局）、
- * 对局交接。状态经 Compose mutableStateOf 暴露给联机屏与房间屏；网络回调
- * 一律 post 回主线程后再改状态。协议与会话状态机本身是纯 Kotlin（可单测），
- * 这里只做 Android 侧装配。
+ * 联机流程的总装（进程级单例）：大厅（发现/加入）、建房（名称/容量/游戏）、
+ * 房间（多席位 2–4 人）、对局交接。状态经 Compose mutableStateOf 暴露给
+ * 联机大厅与房间屏；网络回调一律 post 回主线程后再改状态。
  */
 object NetplayManager {
 
@@ -71,6 +75,10 @@ object NetplayManager {
     var lobbyError by mutableStateOf<String?>(null)
         private set
     var discoveredRooms by mutableStateOf<List<DiscoveredRoom>>(emptyList())
+        private set
+
+    /** 本机局域网 IPv4（状态条展示）；refreshLobby 时刷新。 */
+    var localIp by mutableStateOf<String?>(null)
         private set
 
     // ---- 房间（房间屏） ----
@@ -93,9 +101,14 @@ object NetplayManager {
     private var discovery: NsdRoomDiscovery? = null
     private var announcer: UdpRoomBeacon.Announcer? = null
     private var beaconListener: UdpRoomBeacon.Listener? = null
-    private var hostSession: HostSession? = null
+
+    /** 房主端多席位会话（P2–P4 各一个加入端）；对局/房间阶段共用。 */
+    private val hostSessions = ConcurrentHashMap<Seat, HostSession>()
     private var joinSession: JoinSession? = null
     private var hostNickname: String = ""
+
+    /** 已通过 ROM 校验的加入端席位（房主端状态）。 */
+    private val verifiedSeats = HashSet<Seat>()
 
     // ---- 昵称 ----
 
@@ -111,10 +124,11 @@ object NetplayManager {
 
     // ---- 大厅动作 ----
 
-    /** 联机屏进入时刷新：Wi-Fi 可用性与附近房间浏览（NSD + UDP 广播双路）。 */
+    /** 联机屏进入时刷新：Wi-Fi 可用性、本机 IP 与附近房间浏览（NSD + UDP 双路）。 */
     fun refreshLobby(context: Context) {
         ensureInit(context)
         wifiAvailable = isOnWifi(context)
+        localIp = localIpv4()
         if (wifiAvailable) {
             discovery?.startBrowsing(
                 onFound = { found ->
@@ -199,23 +213,39 @@ object NetplayManager {
         discoveredRooms = emptyList()
     }
 
-    fun hostRoom(context: Context, nickname: String) {
+    // ---- 建房（创建房间页 → 开放房间） ----
+
+    /** 开放房间：房主 P1 入座，广播房间名/容量/房主/人数/所选游戏。 */
+    fun hostRoom(
+        context: Context,
+        nickname: String,
+        roomName: String,
+        capacity: Int,
+        game: PickedGameUi,
+    ) {
         ensureInit(context)
         resetSessionState()
         lobbyError = null
         hostNickname = nickname
+        verifiedSeats.clear()
         try {
             val srv = NetplayServer { link -> onIncoming(link) }
             srv.start()
             server = srv
-            discovery?.registerRoom("$nickname 的房间", srv.port)
+            // 广播 meta：房主昵称|容量|游戏名（人数动态取自 room 状态）
+            val meta = UdpRoomBeacon.RoomMeta(nickname, capacity, game.romName)
+            val roomDisplayName = roomName.trim().ifEmpty { "联机房间" }
+            discovery?.registerRoom(roomDisplayName, srv.port, "$nickname|$capacity|${game.romName}")
             // UDP 广播发现（与 NSD 并行）：mdnssd 在模拟器/部分机型上不可靠
-            announcer = UdpRoomBeacon.Announcer("$nickname 的房间", srv.port).also { it.start() }
+            announcer = UdpRoomBeacon.Announcer(roomDisplayName, srv.port, meta) {
+                room?.players?.size ?: 1
+            }.also { it.start() }
             roomCode = RoomCode.fromIp(localIpv4() ?: "")
             room = RoomUi(
                 isHost = true,
                 players = listOf(PlayerInfo(Seat.P1, nickname)),
-                pickedGame = null,
+                capacity = capacity,
+                pickedGame = game,
                 pickMessage = null,
                 joinerReady = false,
                 startRequested = false,
@@ -276,12 +306,13 @@ object NetplayManager {
             nickname = nickname,
             romLookup = { name -> lookupRom(context, name) },
         )
-        session.onWelcome = { hostNick ->
+        session.onWelcome = { hostNick, seat, capacity ->
             mainHandler.post {
                 hostNickname = hostNick
                 room = RoomUi(
                     isHost = false,
-                    players = listOf(PlayerInfo(Seat.P1, hostNick), PlayerInfo(Seat.P2, nickname)),
+                    players = listOf(PlayerInfo(Seat.P1, hostNick), PlayerInfo(seat, nickname)),
+                    capacity = capacity,
                     pickedGame = null,
                     pickMessage = null,
                     joinerReady = false,
@@ -292,7 +323,9 @@ object NetplayManager {
             }
         }
         session.onPlayers = { players ->
-            mainHandler.post { room = room?.copy(players = players) }
+            mainHandler.post {
+                room = room?.copy(players = players)
+            }
         }
         session.onGamePicked = { romName, ok, reason ->
             mainHandler.post {
@@ -301,18 +334,21 @@ object NetplayManager {
                     pickMessage = reason.ifEmpty { null },
                     joinerReady = ok,
                 )
+                if (!ok) {
+                    // ROM 校验失败：展示提示后自动退房（无法入座，spec「ROM 不一致阻止开局」）
+                    mainHandler.postDelayed({ if (room?.pickedGame?.romName == romName) leaveRoom(context) }, 2_500)
+                }
             }
         }
         session.onStartReceived = { state ->
             mainHandler.post {
                 val romName = room?.pickedGame?.romName ?: return@post
                 pendingGame = NetplayGameSetup(
-                    role = Seat.P2,
+                    role = room?.players?.lastOrNull()?.seat ?: Seat.P2,
                     romName = romName,
-                    opponentNickname = hostNickname,
-                    hostSession = null,
-                    joinSession = session,
+                    members = room?.players ?: listOf(PlayerInfo(Seat.P1, hostNickname), PlayerInfo(Seat.P2, nickname)),
                     joinerState = state,
+                    joinSession = session,
                 )
                 room = room?.copy(startRequested = true)
             }
@@ -332,31 +368,17 @@ object NetplayManager {
 
     // ---- 房间动作 ----
 
-    /** 房主选游戏（IO 线程算 CRC，完成前后状态都可见）。 */
-    fun pickGame(context: Context, file: File) {
-        if (room?.isHost != true) return
-        room = room?.copy(pickedGame = PickedGameUi(file.name, 0, 0), pickMessage = null, joinerReady = false)
-        Thread {
-            val info = RomFileInfo(file.length(), crc32Of(file))
-            mainHandler.post {
-                room = room?.copy(pickedGame = PickedGameUi(file.name, info.size, info.crc32))
-            }
-            hostSession?.pickGame(file.name, info.size, info.crc32)
-        }.start()
-    }
-
-    /** 房主点开始（已确保 joinerReady）：装配对局，返回是否成功。 */
+    /** 房主点开始（全体加入端入座且校验通过）：装配对局，返回 null 表示不可开局。 */
     fun prepareHostStart(): NetplayGameSetup? {
         val r = room ?: return null
         val game = r.pickedGame ?: return null
-        if (!r.joinerReady) return null
+        if (r.players.size < 2 || !r.joinerReady) return null
         val setup = NetplayGameSetup(
             role = Seat.P1,
             romName = game.romName,
-            opponentNickname = r.players.firstOrNull { it.seat == Seat.P2 }?.nickname ?: "对方",
-            hostSession = hostSession,
-            joinSession = null,
+            members = r.players,
             joinerState = null,
+            joinSession = null,
         )
         pendingGame = setup
         return setup
@@ -382,13 +404,14 @@ object NetplayManager {
             localIpv4()?.let { ip -> discoveredMap.remove("$ip:$selfPort") }
             discoveredRooms = discoveredMap.values.map { it.room }.sortedBy { it.serviceName }
         }
-        hostSession?.leave()
+        hostSessions.values.forEach { it.leave() }
+        hostSessions.clear()
         joinSession?.leave()
-        hostSession = null
         joinSession = null
         room = null
         roomCode = null
         pendingGame = null
+        verifiedSeats.clear()
         gameActive.set(false)
     }
 
@@ -407,39 +430,53 @@ object NetplayManager {
         return setup
     }
 
-    /** 房主 GameSession 装载完毕（游戏线程）：发快照开局。 */
+    /** 房主 GameSession 装载完毕（游戏线程）：向全体席位发快照开局。 */
     fun onHostSnapshotReady(state: ByteArray) {
-        hostSession?.startGame(state)
+        hostSessions.values.forEach { it.startGame(state) }
     }
 
-    /** 房主 GameSession 等待加入端就绪（游戏线程，阻塞有界）。 */
-    fun awaitJoinerGameReady(timeoutMs: Long): Boolean =
-        hostSession?.awaitGameReady(timeoutMs) ?: false
+    /** 房主 GameSession 等待全体加入端就绪（游戏线程，阻塞有界）。 */
+    fun awaitJoinerGameReady(timeoutMs: Long): Boolean {
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            if (allJoinersPlaying()) return true
+            Thread.sleep(50)
+        }
+        return allJoinersPlaying()
+    }
+
+    private fun allJoinersPlaying(): Boolean {
+        val sessions = hostSessions.values.toList()
+        return sessions.isNotEmpty() && sessions.all { it.phase == HostSession.Phase.PLAYING }
+    }
 
     /** 加入端 GameSession 加载完快照（游戏线程）：放行房主开跑。 */
     fun onJoinerGameLoaded() {
         joinSession?.notifyGameLoaded()
     }
 
-    /** 加入端上送本地掩码（游戏线程）。 */
+    /** 加入端上送本地席位掩码（游戏线程）。 */
     fun sendJoinerMask(mask: Int) {
         joinSession?.sendLocalMask(mask)
     }
 
-    /** 房主广播输入帧（游戏线程）。 */
-    fun sendHostInput(frame: Int, p1Mask: Int, p2Mask: Int, crc: Long?) {
-        hostSession?.sendInputFrame(frame, p1Mask, p2Mask, crc)
-    }
-
-    /** 房主帧首取加入端最新掩码（游戏线程）。 */
-    fun latestRemoteP2Mask(): Int = hostSession?.latestRemoteP2Mask() ?: 0
-
-    /** 加入端取主机帧输入（游戏线程，阻塞有界）。 */
+    /** 加入端节拍：阻塞等待主机第 N 帧输入（游戏线程，阻塞有界）。 */
     fun awaitJoinerInput(timeoutMs: Long): NetplayMessage.Input? =
         joinSession?.awaitInput(timeoutMs)
 
+    /** 房主广播输入帧（游戏线程）：全体席位同帧同掩码。 */
+    fun sendHostInput(frame: Int, p1Mask: Int, p2Mask: Int, p3Mask: Int, p4Mask: Int, crc: Long?) {
+        hostSessions.values.forEach {
+            it.sendInputFrame(frame, p1Mask, p2Mask, p3Mask, p4Mask, crc)
+        }
+    }
+
+    /** 房主帧首取各席位最新掩码（游戏线程；席位 → 掩码）。 */
+    fun latestRemoteMasks(): Map<Seat, Int> =
+        hostSessions.entries.associate { it.key to it.value.latestRemoteMask() }
+
     /** 房主链路是否仍在线（游戏循环每帧轮询断线）。 */
-    fun isHostLinked(): Boolean = hostSession != null
+    fun isHostLinked(): Boolean = hostSessions.isNotEmpty()
 
     /** 线程安全的对局事件投递（游戏线程 → 主线程 UI）。 */
     fun postGameEvent(event: NetplayGameEvent) {
@@ -449,101 +486,154 @@ object NetplayManager {
     /** 离开游戏屏：联机中则发 Leave 并拆除（单机无副作用）。 */
     fun onGameScreenLeft() {
         if (!gameActive.compareAndSet(true, false)) return
-        hostSession?.leave()
+        hostSessions.values.forEach { it.leave() }
+        hostSessions.clear()
         joinSession?.leave()
+        joinSession = null
         discovery?.unregisterRoom()
         server?.stop()
         server = null
         announcer?.stop()
         announcer = null
-        hostSession = null
-        joinSession = null
+        verifiedSeats.clear()
         room = null
         roomCode = null
         pendingGame = null
     }
 
-    // ---- 内部 ----
+    // ---- 房主端：多席位接纳与维护（主线程） ----
 
     private fun onIncoming(link: NetplayLink) {
         println("[NetplayManager] incoming connection")
         mainHandler.post {
-            if (hostSession != null || room?.full == true) {
+            val r = room
+            val seat = Seat.entries.firstOrNull { s ->
+                s != Seat.P1 && hostSessions[s] == null && r?.players?.none { it.seat == s } == true
+            }
+            if (r == null || !r.isHost || r.full || seat == null) {
                 link.send(NetplayMessage.Reject(RejectReason.ROOM_FULL))
                 link.close()
                 return@post
             }
-            val session = HostSession(link, hostNickname)
+            val session = HostSession(link, hostNickname, seat, r.capacity)
             session.onJoinerJoined = { joiner ->
                 mainHandler.post {
-                    room = room?.copy(
-                        players = listOfNotNull(room?.players?.firstOrNull(), joiner),
-                        notice = null,
-                    )
+                    room = room?.copy(players = mergePlayer(room?.players, joiner))
+                    broadcastPlayers()
+                    // 建房时已选好的游戏立即下发：加入端入座即校验 ROM
+                    room?.pickedGame?.let { g ->
+                        session.pickGame(g.romName, g.size, g.crc32)
+                    }
                 }
             }
             session.onPickResult = { ok, reason ->
-                mainHandler.post {
-                    room = room?.copy(
-                        joinerReady = ok,
-                        pickMessage = reason.ifEmpty { if (ok) null else "加入端校验未通过" },
-                    )
-                }
+                mainHandler.post { onSeatVerified(session, ok, reason) }
             }
             session.onJoinerLeft = { reason ->
-                mainHandler.post { onPeerLeft(reason) }
+                mainHandler.post { onJoinerSeatLeft(session, reason) }
             }
             session.onSessionClosed = {
-                mainHandler.post { if (hostSession === session) hostSession = null }
+                mainHandler.post {
+                    if (hostSessions[session.joinerSeat] === session) {
+                        hostSessions.remove(session.joinerSeat)
+                        verifiedSeats.remove(session.joinerSeat)
+                        val r = room
+                        room = r?.copy(players = r.players.filter { it.seat != session.joinerSeat })
+                        broadcastPlayers()
+                    }
+                }
             }
-            hostSession = session
+            hostSessions[seat] = session
         }
     }
 
-    /** 对端离开/断线：房间阶段 → 房间解散提示；对局阶段 → 游戏事件。 */
+    /** 席位合入（同席位重入以新昵称覆盖，理论不可达，防御性处理）。 */
+    private fun mergePlayer(players: List<PlayerInfo>?, joiner: PlayerInfo): List<PlayerInfo> =
+        (players.orEmpty().filter { it.seat != joiner.seat } + joiner).sortedBy { it.seat.ordinal }
+
+    /** 加入端 ROM 校验结果：通过 → 席位就绪；失败 → 移出席位并提示双方。 */
+    private fun onSeatVerified(session: HostSession, ok: Boolean, reason: String) {
+        val seat = session.joinerSeat
+        if (ok) {
+            verifiedSeats.add(seat)
+            room = room?.copy(joinerReady = recomputeJoinerReady())
+        } else {
+            session.close()
+            hostSessions.remove(seat)
+            verifiedSeats.remove(seat)
+            val r = room
+            room = r?.copy(
+                players = r.players.filter { it.seat != seat },
+                notice = "对方游戏不匹配，已移出：$reason",
+            )
+            broadcastPlayers()
+        }
+    }
+
+    /** 加入端离开（房间/对局阶段入口在会话回调，spec「加入与玩家列表」「断线处理」）。 */
+    private fun onJoinerSeatLeft(session: HostSession, reason: String) {
+        val seat = session.joinerSeat
+        hostSessions.remove(seat)
+        verifiedSeats.remove(seat)
+        session.close()
+        if (gameActive.get()) {
+            // 对局中任一加入者断开 → 房主回单机（spec「断线处理」）：全员拆联机层，
+            // GameSession 轮询 isHostLinked 降级；其余加入端经 Ended 回大厅
+            gameListener?.invoke(NetplayGameEvent.Message(reason))
+            gameListener?.invoke(NetplayGameEvent.Ended(exitGame = false))
+            hostSessions.values.forEach { it.close() }
+            hostSessions.clear()
+            verifiedSeats.clear()
+            discovery?.unregisterRoom()
+            server?.stop()
+            server = null
+            announcer?.stop()
+            announcer = null
+            room = null
+            pendingGame = null
+        } else {
+            val r = room
+            room = r?.copy(
+                players = r.players.filter { it.seat != seat },
+                joinerReady = recomputeJoinerReady(),
+                notice = reason,
+            )
+            broadcastPlayers()
+        }
+    }
+
+    private fun recomputeJoinerReady(): Boolean {
+        val r = room ?: return false
+        val joiners = r.players.filter { it.seat != Seat.P1 }
+        return joiners.isNotEmpty() && joiners.all { it.seat in verifiedSeats }
+    }
+
+    /** 向全体加入端广播最新成员列表（席位/昵称）。 */
+    private fun broadcastPlayers() {
+        val players = room?.players ?: return
+        hostSessions.values.forEach { it.sendPlayers(players) }
+    }
+
+    /** 对端离开/断线（仅加入端会话挂此回调；房主席位侧走 onJoinerSeatLeft）。 */
     private fun onPeerLeft(reason: String) {
         println("[NetplayManager] peer left: $reason")
         if (gameActive.get()) {
-            val isHostRole = hostSession != null
+            // 加入端对局中断开：退出游戏屏回大厅（spec「断线处理」）
             gameListener?.invoke(NetplayGameEvent.Message(reason))
-            gameListener?.invoke(NetplayGameEvent.Ended(exitGame = !isHostRole))
-            // 双端都必须清掉 room 态：否则加入端返回房间屏时 startRequested
-            // 仍为 true，会再次导航进游戏、在刚 deinit 完的共享核心库上开
-            // 新会话 → retro_run native 崩溃（真机复现的闪退根因）
+            gameListener?.invoke(NetplayGameEvent.Ended(exitGame = true))
+            // 清掉 room 态：否则返回房间屏时 startRequested 仍为 true，会再次
+            // 导航进游戏、在刚 deinit 完的共享核心库上开新会话 → native 崩溃
             room = null
-            if (isHostRole) {
-                // 房主继续单机：拆掉联机层，GameSession 自行降级
-                hostSession?.close()
-                hostSession = null
-                discovery?.unregisterRoom()
-                server?.stop()
-                server = null
-                announcer?.stop()
-                announcer = null
-                room = null
-            }
-        } else if (room?.isHost == true) {
-            // 加入者退出（探索反馈 5）：房主的房间保持开放、可继续被发现，
-            // 重置席位与选游戏状态等下一位加入；不走 ended 自动退出
-            hostSession?.close()
-            hostSession = null
-            room = room?.copy(
-                players = listOfNotNull(room?.players?.firstOrNull()),
-                pickedGame = null,
-                pickMessage = null,
-                joinerReady = false,
-                startRequested = false,
-                notice = reason,
-            )
+            pendingGame = null
         } else {
             room = room?.copy(ended = reason)
-            joinSession?.close()
-            joinSession = null
         }
+        joinSession?.close()
+        joinSession = null
     }
 
     /** 房主侧：对局开始后把 onJoinerLeft 从“房间解散”切换为“游戏事件”已由
-     *  onPeerLeft 的 gameActive 分支覆盖，无需额外接线。 */
+     *  onPeerLeft / onJoinerSeatLeft 的 gameActive 分支覆盖，无需额外接线。 */
 
     private fun ensureInit(context: Context) {
         if (initialized) return
@@ -556,9 +646,10 @@ object NetplayManager {
     }
 
     private fun resetSessionState() {
-        hostSession?.close()
+        hostSessions.values.forEach { it.close() }
+        hostSessions.clear()
+        verifiedSeats.clear()
         joinSession?.close()
-        hostSession = null
         joinSession = null
         discovery?.unregisterRoom()
         server?.stop()
@@ -572,6 +663,9 @@ object NetplayManager {
         if (!file.isFile) return null
         return RomFileInfo(file.length(), crc32Of(file))
     }
+
+    /** 创建房间页选游戏时计算校验信息（调用方自管 IO 线程）。 */
+    fun romFileInfo(file: File): RomFileInfo = RomFileInfo(file.length(), crc32Of(file))
 
     private fun crc32Of(file: File): Long {
         val crc = CRC32()

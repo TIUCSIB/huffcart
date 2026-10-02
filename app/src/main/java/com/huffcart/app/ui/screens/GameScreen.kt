@@ -25,7 +25,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -33,6 +35,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -68,6 +72,7 @@ import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -75,15 +80,25 @@ import com.huffcart.app.R
 import com.huffcart.app.netplay.ButtonMask
 import com.huffcart.app.netplay.NetplayCodec
 import com.huffcart.app.netplay.NetplayGameEvent
+import com.huffcart.app.netplay.PlayerInfo
 import com.huffcart.app.netplay.NetplayManager
 import com.huffcart.app.ui.HideSystemNavigationBars
 import com.huffcart.app.netplay.NetplayMessage
 import com.huffcart.app.netplay.Seat
 import com.huffcart.app.netplay.crc32OfVideo
+import com.huffcart.app.ui.game.AudioSettingsStore
 import com.huffcart.app.ui.game.ControlScheme
 import com.huffcart.app.ui.game.ControlSchemeStore
+import com.huffcart.app.ui.game.DisplayAspect
 import com.huffcart.app.ui.game.KeyMappingStore
+import com.huffcart.app.ui.game.PadFeedback
 import com.huffcart.app.ui.game.PadControlsOverlay
+import com.huffcart.app.ui.game.SaveSlotPanel
+import com.huffcart.app.ui.game.SaveSlotPanelMode
+import com.huffcart.app.ui.game.SaveSlotStore
+import com.huffcart.app.ui.game.SlotMeta
+import com.huffcart.app.ui.game.SlotThumbnails
+import com.huffcart.app.ui.game.VideoSettingsStore
 import com.huffcart.app.ui.library.CoverStore
 import com.huffcart.app.ui.theme.HcBannerTag
 import com.huffcart.app.ui.theme.HcCream
@@ -104,10 +119,13 @@ import kotlinx.coroutines.delay
 
 /**
  * 游戏运行屏（game-playback 能力的宿主，retro-ui-redesign 改版）：
- * - 顶部红色导航栏（吹卡带 logo + ⚙️ 快捷菜单）；竖屏：画面区 + 深色面板；横屏：画面 + 浮层
+ * - 竖屏：红色导航栏（吹卡带 logo + ⚙️ 快捷菜单）+ 画面区 + 深色控制面板 + 装饰横幅；
+ *   横屏（game-landscape-fullscreen）：全屏沉浸画面（无顶栏、隐藏状态栏）+ 浮层手柄 +
+ *   右上角半透明菜单浮钮
  * - 音频：AudioTrack blocking write 作为帧节拍（design 决策 4）
  * - 输入：PadControls 触控 + 物理键盘映射（KeyMappingStore），两条通路独立写 setButton
- * - 存/读/快进入口在 ⚙️ 菜单（ui-polish），反馈气泡仍顶部居中
+ * - 存/读/快进入口在 ⚙️ 菜单（ui-polish）；存/读档经槽位面板选槽（audio-settings-and-save-management），
+ *   反馈气泡仍顶部居中；音量/静音/快进静音按声音设置作用到 AudioTrack（只改增益不停写）
  * - 联机（netplay-lan）：经 NetplayManager 消费对局装配；联机中隐藏存/读/快进，
  *   顶部联机横幅；加入端以主机输入流为节拍（design 决策 1）
  * - CRT 滤镜接入点：绘制处可叠加 RuntimeShader（API 33+ 特性检测，本期不实现）
@@ -116,14 +134,18 @@ import kotlinx.coroutines.delay
 fun GameScreen(romName: String, onExit: () -> Unit) {
     val context = LocalContext.current
     BackHandler(onBack = onExit)
-    // 沉浸式：隐藏手势导航条（上滑临时呼出），底部面板不被系统手势区挤压
-    HideSystemNavigationBars()
+    val isPortrait =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+    // 沉浸式：隐藏手势导航条（上滑临时呼出）；横屏全屏（game-landscape-fullscreen）再隐藏状态栏
+    HideSystemNavigationBars(hideStatusBar = !isPortrait)
 
     var fatal by remember { mutableStateOf<String?>(null) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var ffRate by remember { mutableStateOf(1) }
     var forceExit by remember { mutableStateOf(false) }
     var netplayOver by remember { mutableStateOf(false) }
+    // 槽位面板（audio-settings-and-save-management）：菜单「存档/读档」点开后弹出，选槽即存/读
+    var slotPanel by remember { mutableStateOf<SaveSlotPanelMode?>(null) }
     val netplay = remember(romName) { NetplayManager.consumePendingGame() }
     val session = remember(romName) {
         runCatching { GameSession(context, romName, netplay) }
@@ -132,6 +154,9 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
     }
 
     DisposableEffect(romName) {
+        // 按压反馈开关（pad-feedback-and-display-settings）：进游戏屏读一次，
+        // 设置页仅主界面可达，改完重进即新值（manifest configChanges 旋转不重建）
+        PadFeedback.init(context)
         session?.let { s ->
             s.onEvent = { msg -> feedback = msg }
             s.onFatal = { msg -> fatal = msg }
@@ -229,20 +254,35 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                 TextButton(onClick = onExit) { Text(text = "返回", color = HcRed) }
             }
         } else {
-            val isPortrait =
-                LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
             var menuOpen by remember { mutableStateOf(false) }
             val cycleFf = {
                 ffRate = if (ffRate >= 3) 1 else ffRate + 1
                 session.ffFactor = ffRate
             }
             val netplayActive = netplay != null && !netplayOver
-            val netplayBanner = if (netplayActive) {
-                netplay?.let {
-                    "联机中 · 对方 ${it.opponentNickname}（${if (it.role == Seat.P1) "P2" else "P1"}）"
+            slotPanel?.let { mode ->
+                val savesDir = remember { File(context.filesDir, SaveSlotStore.DIR_NAME) }
+                val slotMetas = remember(mode) { SaveSlotStore.slots(savesDir, romName) }
+                val slotThumbs = remember(slotMetas) {
+                    slotMetas.map { meta -> meta?.let { SlotThumbnails.decode(context, romName, it.slot) } }
                 }
-            } else {
-                null
+                SaveSlotPanel(
+                    mode = mode,
+                    metas = slotMetas,
+                    thumbnails = slotThumbs,
+                    onSelect = { slot ->
+                        // 读档模式下空槽在面板内已不可点，此处兜底
+                        if (mode == SaveSlotPanelMode.SAVE || slotMetas.getOrNull(slot) != null) {
+                            slotPanel = null
+                            if (mode == SaveSlotPanelMode.SAVE) {
+                                session.requestSaveState(slot)
+                            } else {
+                                session.requestLoadState(slot)
+                            }
+                        }
+                    },
+                    onDismiss = { slotPanel = null },
+                )
             }
             if (isPortrait) {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -251,8 +291,8 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                         netplayActive = netplayActive,
                         menuExpanded = menuOpen,
                         onMenu = { menuOpen = it },
-                        onSave = { session.requestSaveState() },
-                        onLoad = { session.requestLoadState() },
+                        onSave = { slotPanel = SaveSlotPanelMode.SAVE },
+                        onLoad = { slotPanel = SaveSlotPanelMode.LOAD },
                         onCycleFf = cycleFf,
                         onExit = onExit,
                     )
@@ -265,7 +305,9 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                                 }
                             },
                         )
-                        NetplayBanner(netplayBanner, Modifier.align(Alignment.TopStart))
+                        if (netplayActive) {
+                            netplay?.let { SeatBadges(it.members, it.role, Modifier.align(Alignment.TopStart)) }
+                        }
                         FeedbackPill(feedback, Modifier.align(Alignment.TopCenter))
                     }
                     ControlPanel(
@@ -276,30 +318,33 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                     FamilyComputerBanner()
                 }
             } else {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    GameTopBar(
+                // 横屏全屏沉浸（game-landscape-fullscreen）：无顶栏、画面占满整屏，
+                // 菜单收进右上角半透明浮钮，与竖屏顶栏菜单共用同一组回调
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            SurfaceView(ctx).apply {
+                                holder.addCallback(session.surfaceCallback)
+                            }
+                        },
+                    )
+                    PadControlsOverlay(onButton = handleButton, scheme = controlScheme)
+                    GameFloatingMenu(
                         ffRate = ffRate,
                         netplayActive = netplayActive,
                         menuExpanded = menuOpen,
                         onMenu = { menuOpen = it },
-                        onSave = { session.requestSaveState() },
-                        onLoad = { session.requestLoadState() },
+                        onSave = { slotPanel = SaveSlotPanelMode.SAVE },
+                        onLoad = { slotPanel = SaveSlotPanelMode.LOAD },
                         onCycleFf = cycleFf,
                         onExit = onExit,
+                        modifier = Modifier.align(Alignment.TopEnd),
                     )
-                    Box(modifier = Modifier.fillMaxSize().weight(1f)) {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = { ctx ->
-                                SurfaceView(ctx).apply {
-                                    holder.addCallback(session.surfaceCallback)
-                                }
-                            },
-                        )
-                        PadControlsOverlay(onButton = handleButton, scheme = controlScheme)
-                        NetplayBanner(netplayBanner, Modifier.align(Alignment.TopStart))
-                        FeedbackPill(feedback, Modifier.align(Alignment.TopCenter))
+                    if (netplayActive) {
+                        netplay?.let { SeatBadges(it.members, it.role, Modifier.align(Alignment.TopStart)) }
                     }
+                    FeedbackPill(feedback, Modifier.align(Alignment.TopCenter))
                 }
             }
         }
@@ -351,37 +396,109 @@ private fun GameTopBar(
                 containerColor = Color.White,
                 border = BorderStroke(1.dp, HcOutlineLight),
             ) {
-                if (!netplayActive) {
-                    DropdownMenuItem(
-                        text = { Text("存档") },
-                        onClick = {
-                            onMenu(false)
-                            onSave()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("读档") },
-                        onClick = {
-                            onMenu(false)
-                            onLoad()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("快进（当前 ${ffRate}x）") },
-                        onClick = {
-                            onMenu(false)
-                            onCycleFf()
-                        },
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text("退出游戏", color = HcRed) },
-                    onClick = {
-                        onMenu(false)
-                        onExit()
-                    },
+                GameMenuItems(
+                    netplayActive = netplayActive,
+                    ffRate = ffRate,
+                    onDismiss = { onMenu(false) },
+                    onSave = onSave,
+                    onLoad = onLoad,
+                    onCycleFf = onCycleFf,
+                    onExit = onExit,
                 )
             }
+        }
+    }
+}
+
+/** 游戏菜单项（竖屏顶栏与横屏浮钮共用）：联机中（netplayActive）存/读/快进与同步机制
+ *  冲突，菜单仅保留退出（spec「联机期间限制」）。 */
+@Composable
+private fun GameMenuItems(
+    netplayActive: Boolean,
+    ffRate: Int,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    onLoad: () -> Unit,
+    onCycleFf: () -> Unit,
+    onExit: () -> Unit,
+) {
+    if (!netplayActive) {
+        DropdownMenuItem(
+            text = { Text("存档") },
+            onClick = {
+                onDismiss()
+                onSave()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text("读档") },
+            onClick = {
+                onDismiss()
+                onLoad()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text("快进（当前 ${ffRate}x）") },
+            onClick = {
+                onDismiss()
+                onCycleFf()
+            },
+        )
+    }
+    DropdownMenuItem(
+        text = { Text("退出游戏", color = HcRed) },
+        onClick = {
+            onDismiss()
+            onExit()
+        },
+    )
+}
+
+/** 横屏全屏下的游戏菜单浮钮（game-landscape-fullscreen）：右上角半透明圆形齿轮，
+ *  padding 避让 displayCutout（状态栏已隐藏，刘海挖孔仍可能压角）；菜单项与竖屏一致。 */
+@Composable
+private fun GameFloatingMenu(
+    ffRate: Int,
+    netplayActive: Boolean,
+    menuExpanded: Boolean,
+    onMenu: (Boolean) -> Unit,
+    onSave: () -> Unit,
+    onLoad: () -> Unit,
+    onCycleFf: () -> Unit,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .windowInsetsPadding(WindowInsets.displayCutout)
+            .padding(top = 4.dp, end = 4.dp),
+    ) {
+        IconButton(
+            onClick = { onMenu(true) },
+            modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), CircleShape),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "游戏菜单",
+                tint = Color.White.copy(alpha = 0.85f),
+            )
+        }
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { onMenu(false) },
+            shape = RoundedCornerShape(10.dp),
+            containerColor = Color.White,
+            border = BorderStroke(1.dp, HcOutlineLight),
+        ) {
+            GameMenuItems(
+                netplayActive = netplayActive,
+                ffRate = ffRate,
+                onDismiss = { onMenu(false) },
+                onSave = onSave,
+                onLoad = onLoad,
+                onCycleFf = onCycleFf,
+                onExit = onExit,
+            )
         }
     }
 }
@@ -453,21 +570,31 @@ private fun FeedbackPill(message: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/** 联机横幅（netplay-lan）：左上角显示联机状态与对方昵称/席位。 */
+/** 联机席位徽章（netplay-lobby-v2）：左上角一排 P1–P4 小圆徽，本端席位红色高亮。 */
 @Composable
-private fun NetplayBanner(text: String?, modifier: Modifier = Modifier) {
-    if (text == null) return
-    Box(
-        modifier = modifier
-            .padding(top = 32.dp, start = 12.dp)
-            .background(HcRed.copy(alpha = 0.75f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+private fun SeatBadges(members: List<PlayerInfo>, mySeat: Seat, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.padding(top = 40.dp, start = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            text = text,
-            color = Color.White,
-            style = MaterialTheme.typography.labelMedium,
-        )
+        members.sortedBy { it.seat.ordinal }.forEach { m ->
+            val mine = m.seat == mySeat
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(
+                        if (mine) HcRed.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.55f),
+                        CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    m.seat.label,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
     }
 }
 
@@ -476,7 +603,7 @@ private fun NetplayBanner(text: String?, modifier: Modifier = Modifier) {
  *  加入端以主机输入流为节拍、音频改非阻塞写（design 决策 1/5）。 */
 private class GameSession(
     context: Context,
-    romName: String,
+    private val romName: String,
     private val netplay: com.huffcart.app.netplay.NetplayGameSetup? = null,
 ) {
 
@@ -506,16 +633,23 @@ private class GameSession(
     @Volatile
     private var localP1Mask = 0
 
+    /** 加入端本机席位（P2/P3/P4）掩码；UI 线程写 / 游戏线程读。 */
     @Volatile
-    private var localP2Mask = 0
+    private var localSeatMask = 0
 
     private val romsDir = File(context.filesDir, "roms").apply { mkdirs() }
-    private val savesDir = File(context.filesDir, "romsaves").apply { mkdirs() }
+    val savesDir = File(context.filesDir, SaveSlotStore.DIR_NAME).apply { mkdirs() }
     private val systemDir = File(context.filesDir, "system").apply { mkdirs() }
     private val romFile = romsDir.resolve(romName)
     private val coreLib = File(context.applicationInfo.nativeLibraryDir, "libfceumm_libretro.so")
     private val srmFile = savesDir.resolve(romName.removeSuffix(".nes") + ".srm")
-    private val stateFile = savesDir.resolve(romName.removeSuffix(".nes") + ".state0")
+
+    /** 声音设置（audio-settings-and-save-management）：会话构造时读一次，进游戏生效。 */
+    private val audio = AudioSettingsStore.load(context)
+
+    /** 画面比例（pad-feedback-and-display-settings）：会话构造时读一次；设置页仅主界面可达，
+     *  改完重进游戏即新值。 */
+    private val aspect = VideoSettingsStore.load(context)
 
     val surfaceCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
@@ -551,11 +685,11 @@ private class GameSession(
     @Volatile
     var ffFactor: Int = 1
 
-    fun requestSaveState() { pendingCommand.set(SaveStateCmd) }
+    fun requestSaveState(slot: Int) { pendingCommand.set(SaveStateCmd(slot)) }
 
-    fun requestLoadState() { pendingCommand.set(LoadStateCmd) }
+    fun requestLoadState(slot: Int) { pendingCommand.set(LoadStateCmd(slot)) }
 
-    /** 本机物理输入入口（触控 + 键盘）：单机写 P1；联机按席位映射（design 决策 6）。 */
+    /** 本机物理输入入口（触控 + 键盘）：单机写 P1；联机按席位映射（netplay-lobby-v2）。 */
     fun onLocalButton(button: RetroButton, pressed: Boolean) {
         val np = netplay
         if (np == null) {
@@ -569,10 +703,10 @@ private class GameSession(
                 core.setButton(0, button, pressed)
                 localP1Mask = if (pressed) localP1Mask or bit else localP1Mask and bit.inv()
             }
-            Seat.P2 -> {
-                // 加入端：本机是 P2，但核心输入完全来自主机回传——本地只上送
-                localP2Mask = if (pressed) localP2Mask or bit else localP2Mask and bit.inv()
-                NetplayManager.sendJoinerMask(localP2Mask)
+            else -> {
+                // 加入端（P2/P3/P4）：核心输入完全来自主机回传——本地只上送本席位
+                localSeatMask = if (pressed) localSeatMask or bit else localSeatMask and bit.inv()
+                NetplayManager.sendJoinerMask(localSeatMask)
             }
         }
     }
@@ -590,8 +724,8 @@ private class GameSession(
     var onFatal: ((String) -> Unit)? = null
 
     private sealed interface SessionCommand
-    private data object SaveStateCmd : SessionCommand
-    private data object LoadStateCmd : SessionCommand
+    private data class SaveStateCmd(val slot: Int) : SessionCommand
+    private data class LoadStateCmd(val slot: Int) : SessionCommand
     private val pendingCommand = AtomicReference<SessionCommand?>(null)
 
     fun start() {
@@ -603,8 +737,8 @@ private class GameSession(
             else -> throw IllegalStateException("游戏加载失败")
         }
         when (netplay?.role) {
-            // 加入端：跳过本地 SRAM（避免与房主分叉）；快照对齐在游戏线程做
-            Seat.P2 -> Unit
+            // 加入端（P2/P3/P4）：跳过本地 SRAM（避免与房主分叉）；快照对齐在游戏线程做
+            Seat.P2, Seat.P3, Seat.P4 -> Unit
             // 房主：注入本地 SRAM，快照对齐在游戏线程做（loop 开头，避免阻塞主线程）
             Seat.P1 -> srmFile.takeIf { it.exists() }?.let { core.setSram(it.readBytes()) }
             // 单机：照旧注入电池存档
@@ -634,9 +768,41 @@ private class GameSession(
             .setBufferSizeInBytes(maxOf(minBuf, rate / 10 * 4)) // ≈100ms
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
+        // 音量/静音（audio-settings-and-save-management 决策 1）：只改增益不停写——
+        // AudioTrack 阻塞写是帧节拍；快进静音由游戏循环按帧联动
+        audioTrack?.setVolume(audio.gain)
 
         running = true
         loopThread = thread(name = "game-loop") { loop() }
+    }
+
+    /** 画面区内居中缩放矩形（pad-feedback-and-display-settings）：NATIVE 整数倍 letterbox
+     *  （原行为，像素完美）；RATIO_4_3 按 4:3 盒适配（允许非整数缩放，老电视观感）；
+     *  STRETCH 铺满画面区（不保持比例）。三档均走最近邻 paint（isFilterBitmap = false），
+     *  非整数档位像素宽度轻微不均为可接受取舍（主流模拟器同做法）。 */
+    private fun scaledRect(canvasW: Int, canvasH: Int, frameW: Int, frameH: Int): RectF {
+        return when (aspect) {
+            DisplayAspect.NATIVE -> {
+                val scale = minOf(canvasW / frameW, canvasH / frameH).coerceAtLeast(1)
+                val dw = frameW * scale.toFloat()
+                val dh = frameH * scale.toFloat()
+                RectF((canvasW - dw) / 2f, (canvasH - dh) / 2f, (canvasW + dw) / 2f, (canvasH + dh) / 2f)
+            }
+            DisplayAspect.RATIO_4_3 -> {
+                val target = 4f / 3f
+                val dw: Float
+                val dh: Float
+                if (canvasW.toFloat() / canvasH > target) {
+                    dh = canvasH.toFloat()
+                    dw = dh * target
+                } else {
+                    dw = canvasW.toFloat()
+                    dh = dw / target
+                }
+                RectF((canvasW - dw) / 2f, (canvasH - dh) / 2f, (canvasW + dw) / 2f, (canvasH + dh) / 2f)
+            }
+            DisplayAspect.STRETCH -> RectF(0f, 0f, canvasW.toFloat(), canvasH.toFloat())
+        }
     }
 
     private fun loop() {
@@ -645,6 +811,8 @@ private class GameSession(
         val paint = android.graphics.Paint().apply { isFilterBitmap = false }
         var framesSinceMark = 0
         var lastMark = SystemClock.elapsedRealtime()
+        // 当前已应用增益（NaN 驱动首帧应用一次；快进进入/退出时随 desiredGain 切换）
+        var appliedGain = Float.NaN
         audioTrack?.play()
 
         // 截图封面（game-cover-art 任务 2.3）：无任何封面时，开局约 8 秒截取一帧存 PNG。
@@ -668,7 +836,8 @@ private class GameSession(
                         return
                     }
                 }
-                Seat.P2 -> {
+                else -> {
+                    // 加入端（P2/P3/P4）：加载房主快照，从同一状态起跑
                     val state = np.joinerState
                     if (state == null || !core.loadState(state)) {
                         notifyFatal("联机开局同步失败")
@@ -679,16 +848,42 @@ private class GameSession(
             }
         }
         var frameNo = 0
-        var lastAppliedP1 = 0
-        var lastAppliedP2 = 0
+        // 各席位最后应用的掩码（索引 = Seat.ordinal；房主侧 P2–P4 / 加入端全席位）
+        val lastAppliedMasks = IntArray(4)
         while (running) {
-            // ---- 联机帧首：装配本帧核心输入（design 决策 1）----
-            var input: NetplayMessage.Input? = null
+            // ---- 联机帧首：装配本帧核心输入（netplay-lobby-v2：四席位）----
             if (netplayLive && np != null) {
                 when (np.role) {
-                    Seat.P2 -> {
+                    Seat.P1 -> {
+                        if (!NetplayManager.isHostLinked()) {
+                            // 全部加入端断开：清 P2–P4 注入，无缝回到单机（spec「断线处理」）
+                            netplayLive = false
+                            for (seat in Seat.entries) {
+                                if (seat == Seat.P1) continue
+                                val prev = lastAppliedMasks[seat.ordinal]
+                                lastAppliedMasks[seat.ordinal] = 0
+                                ButtonMask.diff(prev, 0,
+                                    { }, { core.setButton(seat.ordinal, it, false) })
+                            }
+                            NetplayManager.postGameEvent(NetplayGameEvent.Message("对方已断开，回到单机"))
+                        } else {
+                            val remote = NetplayManager.latestRemoteMasks()
+                            for (seat in Seat.entries) {
+                                if (seat == Seat.P1) continue
+                                val target = remote[seat] ?: 0
+                                val prev = lastAppliedMasks[seat.ordinal]
+                                if (prev != target) {
+                                    ButtonMask.diff(prev, target,
+                                        { core.setButton(seat.ordinal, it, true) },
+                                        { core.setButton(seat.ordinal, it, false) })
+                                    lastAppliedMasks[seat.ordinal] = target
+                                }
+                            }
+                        }
+                    }
+                    else -> {
                         // 加入端节拍：阻塞等主机第 N 帧输入；超时即断（读超时 3s）
-                        input = NetplayManager.awaitJoinerInput(3_000)
+                        val input = NetplayManager.awaitJoinerInput(3_000)
                         if (input == null) {
                             println("[StopSeq] joiner loop: input timeout, exiting")
                             netplayLive = false
@@ -697,26 +892,18 @@ private class GameSession(
                             running = false
                             break
                         }
-                        ButtonMask.diff(lastAppliedP1, input.p1Mask,
-                            { core.setButton(0, it, true) }, { core.setButton(0, it, false) })
-                        ButtonMask.diff(lastAppliedP2, input.p2Mask,
-                            { core.setButton(1, it, true) }, { core.setButton(1, it, false) })
-                        lastAppliedP1 = input.p1Mask
-                        lastAppliedP2 = input.p2Mask
-                    }
-                    Seat.P1 -> {
-                        if (!NetplayManager.isHostLinked()) {
-                            // 对方断开：清 P2 注入，无缝回到单机（spec「断线处理」）
-                            netplayLive = false
-                            ButtonMask.diff(lastAppliedP2, 0,
-                                { }, { core.setButton(1, it, false) })
-                            lastAppliedP2 = 0
-                            NetplayManager.postGameEvent(NetplayGameEvent.Message("对方已断开，回到单机"))
-                        } else {
-                            val remote = NetplayManager.latestRemoteP2Mask()
-                            ButtonMask.diff(lastAppliedP2, remote,
-                                { core.setButton(1, it, true) }, { core.setButton(1, it, false) })
-                            lastAppliedP2 = remote
+                        val masks = intArrayOf(
+                            input.p1Mask, input.p2Mask, input.p3Mask, input.p4Mask,
+                        )
+                        for (seat in Seat.entries) {
+                            val target = masks[seat.ordinal]
+                            val prev = lastAppliedMasks[seat.ordinal]
+                            if (prev != target) {
+                                ButtonMask.diff(prev, target,
+                                    { core.setButton(seat.ordinal, it, true) },
+                                    { core.setButton(seat.ordinal, it, false) })
+                                lastAppliedMasks[seat.ordinal] = target
+                            }
                         }
                     }
                 }
@@ -741,19 +928,28 @@ private class GameSession(
 
             // 会话命令在游戏线程帧末执行（序列化须与 retro_run 同线程）
             when (val cmd = pendingCommand.getAndSet(null)) {
-                SaveStateCmd -> {
+                is SaveStateCmd -> {
                     val data = core.saveState()
                     if (data != null) {
-                        stateFile.writeBytes(data)
-                        notifyEvent("已存档")
+                        val existed = SaveSlotStore.stateFile(savesDir, romName, cmd.slot).exists()
+                        SaveSlotStore.writeState(savesDir, romName, cmd.slot, data)
+                        captureSlotThumbnail(current, cmd.slot)
+                        notifyEvent(
+                            if (existed) {
+                                "已覆盖保存到槽位 ${cmd.slot + 1}"
+                            } else {
+                                "已存档到槽位 ${cmd.slot + 1}"
+                            },
+                        )
                     } else {
                         notifyEvent("存档失败")
                     }
                 }
-                LoadStateCmd -> {
-                    val ok = stateFile.exists() &&
-                        runCatching { core.loadState(stateFile.readBytes()) }.getOrDefault(false)
-                    notifyEvent(if (ok) "已读档" else "暂无存档")
+                is LoadStateCmd -> {
+                    val file = SaveSlotStore.stateFile(savesDir, romName, cmd.slot)
+                    val ok = file.exists() &&
+                        runCatching { core.loadState(file.readBytes()) }.getOrDefault(false)
+                    notifyEvent(if (ok) "已读档（槽位 ${cmd.slot + 1}）" else "暂无存档")
                 }
                 null -> Unit
             }
@@ -763,6 +959,13 @@ private class GameSession(
             // 加入端改非阻塞写——节拍来自主机输入流，写满只能丢（短促杂音可接受）
             audioTrack?.let { track ->
                 if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    // 音量/快进静音（audio-settings-and-save-management 决策 1）：只改增益，
+                    // 绝不 pause/停写——AudioTrack 阻塞写是帧节拍
+                    val desiredGain = audio.gainDuringFastForward(factor > 1)
+                    if (desiredGain != appliedGain) {
+                        track.setVolume(desiredGain)
+                        appliedGain = desiredGain
+                    }
                     val n = current.audioSamples.coerceIn(0, current.audio.size)
                     val mode = if (netplayLive && np?.role == Seat.P2) {
                         AudioTrack.WRITE_NON_BLOCKING
@@ -772,7 +975,8 @@ private class GameSession(
                     if (n > 0) track.write(current.audio, 0, n, mode)
                 }
             }
-            // 渲染：整数倍缩放 letterbox（canvas 为所在区域的实际尺寸，分区/全屏自适应）
+            // 渲染：按画面比例设置缩放（NATIVE 整数倍 letterbox / 4:3 / 铺满，最近邻）；
+            // canvas 为所在区域的实际尺寸，分区/全屏自适应
             val holder = surfaceRef.get()
             if (holder == null) {
                 Thread.sleep(8)
@@ -804,12 +1008,7 @@ private class GameSession(
                     val canvas = holder.lockCanvas() ?: return@synchronized
                     try {
                         canvas.drawColor(android.graphics.Color.BLACK)
-                        val scale = minOf(canvas.width / w, canvas.height / h).coerceAtLeast(1)
-                        val dw = w * scale
-                        val dh = h * scale
-                        val left = (canvas.width - dw) / 2f
-                        val top = (canvas.height - dh) / 2f
-                        canvas.drawBitmap(bmp, null, RectF(left, top, left + dw, top + dh), paint)
+                        canvas.drawBitmap(bmp, null, scaledRect(canvas.width, canvas.height, w, h), paint)
                     } finally {
                         holder.unlockCanvasAndPost(canvas)
                     }
@@ -827,15 +1026,21 @@ private class GameSession(
                         } else {
                             null
                         }
-                        NetplayManager.sendHostInput(frameNo, localP1Mask, lastAppliedP2, crc)
+                        NetplayManager.sendHostInput(
+                            frameNo, localP1Mask,
+                            lastAppliedMasks[Seat.P2.ordinal],
+                            lastAppliedMasks[Seat.P3.ordinal],
+                            lastAppliedMasks[Seat.P4.ordinal],
+                            crc,
+                        )
                     }
-                    Seat.P2 -> {
+                    else -> {
                         if (NetplayCodec.isChecksumFrame(frameNo)) {
                             np.joinSession?.verifyFrame(crc32OfVideo(current.video, w, h))
                         }
                         // 保活：掩码不变也定期上送，房主靠它判定断线（design 决策 5）
                         if (frameNo % JOINER_KEEPALIVE_FRAMES == 0) {
-                            NetplayManager.sendJoinerMask(localP2Mask)
+                            NetplayManager.sendJoinerMask(localSeatMask)
                         }
                     }
                 }
@@ -849,6 +1054,16 @@ private class GameSession(
                 lastMark = now
             }
         }
+    }
+
+    /** 保存时刻抓帧写槽位缩略图：原生分辨率复制一份交 IO 线程压缩落盘，游戏线程只付拷贝。 */
+    private fun captureSlotThumbnail(frame: Frame, slot: Int) {
+        val w = frame.videoInfo.width
+        val h = frame.videoInfo.height
+        if (w <= 0 || h <= 0) return
+        val shot = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        shot.setPixels(frame.video, 0, w, 0, 0, w, h)
+        SlotThumbnails.writeAsync(appContext, romName, slot, shot)
     }
 
     fun stop() {

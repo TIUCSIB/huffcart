@@ -14,21 +14,31 @@ import java.net.NetworkInterface
  * 房主创建房间后周期性广播房间通告（房间名 + TCP 端口），加入端在联机屏
  * 期间监听。与 NSD 并行运行、结果合并；广播收发不依赖 mdnssd 守护进程。
  *
- * 线格式：`HUFFCART1|<tcpPort>|<房间名>`（房间名中的 '|' 转义为 '/'）。
- * tcpPort=0 为**关闭通告**：房主退出时连发数个，加入端收到即移除条目——
- * 正常退出即时消失；TTL 仅兜底进程被杀等异常死亡。
+ * 线格式（v2）：`HUFFCART2|<tcpPort>|<房间名>|<房主昵称>|<容量>|<人数>|<游戏名>`
+ * （字段中的 '|' 转义为 '/'）。tcpPort=0 为**关闭通告**：房主退出时连发数个，
+ * 加入端收到即移除条目——正常退出即时消失；TTL 仅兜底进程被杀等异常死亡。
  * 广播地址双发：受限广播 255.255.255.255 + 本机 /24 定向广播；接收端持有
  * MulticastLock（部分机型收广播/组播必需）。
  */
 object UdpRoomBeacon {
 
     const val PORT: Int = 47478
-    private const val MAGIC = "HUFFCART1"
+    private const val MAGIC = "HUFFCART2"
     private const val MAX_PACKET = 512
 
-    fun encode(roomName: String, tcpPort: Int): ByteArray {
-        val safe = roomName.replace("|", "/")
-        return "$MAGIC|$tcpPort|$safe".encodeToByteArray()
+    /** 广播负载（房间名之外的卡片数据源），人数变化时由 Announcer 动态取值。 */
+    data class RoomMeta(
+        val hostNickname: String,
+        val capacity: Int,
+        val gameName: String,
+    )
+
+    fun encode(roomName: String, tcpPort: Int, meta: RoomMeta, playerCount: Int): ByteArray {
+        val safe = { s: String -> s.replace("|", "/") }
+        return (
+            "$MAGIC|$tcpPort|${safe(roomName)}|${safe(meta.hostNickname)}|" +
+                "${meta.capacity}|$playerCount|${safe(meta.gameName)}"
+            ).encodeToByteArray()
     }
 
     /** 房间关闭通告（端口记 0）：房主退出时连发数个，加入端收到即移除条目。 */
@@ -37,18 +47,36 @@ object UdpRoomBeacon {
         return "$MAGIC|0|$safe".encodeToByteArray()
     }
 
+    /** 解码结果：房间名 + 端口 + v2 卡片元数据（v1 载荷无 meta，count 恒 1）。 */
+    data class Decoded(
+        val roomName: String,
+        val tcpPort: Int,
+        val meta: RoomMeta?,
+        val playerCount: Int,
+    )
+
     /**
-     * 解出（房间名, TCP 端口）；房主 IP 从数据报来源地址取。
-     * 端口 0 = 关闭通告；其余非法载荷返回 null。
+     * 解出广播载荷；房主 IP 从数据报来源地址取。
+     * 端口 0 = 关闭通告；v1 载荷（无 meta 字段）兼容为缺省 meta；其余非法返回 null。
      */
-    fun decode(data: ByteArray, length: Int): Pair<String, Int>? {
+    fun decode(data: ByteArray, length: Int): Decoded? {
         val text = data.decodeToString(0, length.coerceAtMost(MAX_PACKET))
         val parts = text.split("|")
         if (parts.size < 3 || parts[0] != MAGIC) return null
         val port = parts[1].toIntOrNull() ?: return null
-        if (port == 0) return parts.drop(2).joinToString("|") to 0
+        if (port == 0) return Decoded(parts.drop(2).joinToString("|"), 0, null, 0)
         if (port !in 1024..65535) return null
-        return parts.drop(2).joinToString("|") to port
+        if (parts.size < 7) {
+            // v1 兼容：仅房间名
+            return Decoded(parts.drop(2).joinToString("|"), port, null, 1)
+        }
+        val meta = RoomMeta(
+            hostNickname = parts[3],
+            capacity = parts[4].toIntOrNull() ?: 0,
+            gameName = parts.drop(6).joinToString("|"),
+        )
+        val count = parts[5].toIntOrNull() ?: 1
+        return Decoded(parts[2], port, meta, count)
     }
 
     fun broadcastAddresses(): List<InetAddress> {
@@ -68,8 +96,13 @@ object UdpRoomBeacon {
         return targets.distinctBy { it.hostAddress }
     }
 
-    /** 房主侧：每 1.5s 广播一次房间通告；[stop] 时连发关闭通告再收摊。 */
-    class Announcer(private val roomName: String, private val tcpPort: Int) {
+    /** 房主侧：每 1.5s 广播一次房间通告（人数动态取自 [playerCount]）；[stop] 时连发关闭通告再收摊。 */
+    class Announcer(
+        private val roomName: String,
+        private val tcpPort: Int,
+        private val meta: RoomMeta,
+        private val playerCount: () -> Int,
+    ) {
 
         @Volatile
         private var running = false
@@ -83,9 +116,9 @@ object UdpRoomBeacon {
                 try {
                     val sock = DatagramSocket().apply { broadcast = true }
                     socket = sock
-                    val data = UdpRoomBeacon.encode(roomName, tcpPort)
                     val targets = broadcastAddresses()
                     while (running) {
+                        val data = UdpRoomBeacon.encode(roomName, tcpPort, meta, playerCount())
                         targets.forEach { target ->
                             runCatching { sock.send(DatagramPacket(data, data.size, target, PORT)) }
                         }
@@ -151,12 +184,22 @@ object UdpRoomBeacon {
                     while (running) {
                         val pkt = DatagramPacket(buf, buf.size)
                         sock.receive(pkt)
-                        val (name, port) = UdpRoomBeacon.decode(pkt.data, pkt.length) ?: continue
+                        val decoded = UdpRoomBeacon.decode(pkt.data, pkt.length) ?: continue
                         val host = pkt.address?.hostAddress ?: continue
-                        if (port == 0) {
+                        if (decoded.tcpPort == 0) {
                             onClosed(host)
                         } else {
-                            onFound(DiscoveredRoom(name, host, port))
+                            onFound(
+                                DiscoveredRoom(
+                                    serviceName = decoded.roomName,
+                                    host = host,
+                                    port = decoded.tcpPort,
+                                    hostNickname = decoded.meta?.hostNickname.orEmpty(),
+                                    capacity = decoded.meta?.capacity ?: 0,
+                                    playerCount = decoded.playerCount,
+                                    gameName = decoded.meta?.gameName.orEmpty(),
+                                ),
+                            )
                         }
                     }
                 } catch (_: Throwable) {

@@ -21,11 +21,16 @@ class NetplayCodecTest {
     fun `全部消息类型 round-trip`() {
         val messages = listOf(
             NetplayMessage.Hello(NETPLAY_PROTOCOL_VERSION, "0.1.0", "小刚"),
-            NetplayMessage.Welcome("阿吹"),
+            NetplayMessage.Welcome("阿吹", Seat.P3, 4),
             NetplayMessage.Reject(RejectReason.ROOM_FULL),
             NetplayMessage.Reject(RejectReason.VERSION_MISMATCH),
             NetplayMessage.PlayerList(
-                listOf(PlayerInfo(Seat.P1, "阿吹"), PlayerInfo(Seat.P2, "小刚")),
+                listOf(
+                    PlayerInfo(Seat.P1, "阿吹"),
+                    PlayerInfo(Seat.P2, "小刚"),
+                    PlayerInfo(Seat.P3, "大毛"),
+                    PlayerInfo(Seat.P4, "二毛"),
+                ),
             ),
             NetplayMessage.PickGame("Contra (J).nes", 131072L, 0x1A2B3C4D5EL),
             NetplayMessage.Ready(ok = true, reason = ""),
@@ -35,6 +40,8 @@ class NetplayCodecTest {
             NetplayMessage.GameReady,
             NetplayMessage.Leave,
             NetplayMessage.ClientInput(0x1FF),
+            NetplayMessage.Ping,
+            NetplayMessage.Pong,
         )
         messages.forEach { original ->
             val decoded = decodeFrame(NetplayCodec.encode(original))
@@ -44,17 +51,25 @@ class NetplayCodecTest {
 
     @Test
     fun `INPUT 帧非校验帧不带 CRC`() {
-        val msg = NetplayMessage.Input(frame = 63, p1Mask = 0x10, p2Mask = 0x201, videoCrc32 = null)
+        val msg = NetplayMessage.Input(
+            frame = 63, p1Mask = 0x10, p2Mask = 0x201, p3Mask = 0x2, p4Mask = 0x1,
+            videoCrc32 = null,
+        )
         val decoded = decodeFrame(NetplayCodec.encode(msg)).single() as NetplayMessage.Input
         assertEquals(63, decoded.frame)
         assertEquals(0x10, decoded.p1Mask)
         assertEquals(0x201, decoded.p2Mask)
+        assertEquals(0x2, decoded.p3Mask)
+        assertEquals(0x1, decoded.p4Mask)
         assertNull(decoded.videoCrc32)
     }
 
     @Test
     fun `INPUT 帧 64 的倍数搭载 CRC`() {
-        val msg = NetplayMessage.Input(frame = 128, p1Mask = 0, p2Mask = 0, videoCrc32 = 0xDEADBEEFL)
+        val msg = NetplayMessage.Input(
+            frame = 128, p1Mask = 0, p2Mask = 0, p3Mask = 0, p4Mask = 0,
+            videoCrc32 = 0xDEADBEEFL,
+        )
         val decoded = decodeFrame(NetplayCodec.encode(msg)).single() as NetplayMessage.Input
         assertEquals(128, decoded.frame)
         assertEquals(0xDEADBEEFL, decoded.videoCrc32)
@@ -64,14 +79,14 @@ class NetplayCodecTest {
 
     @Test
     fun `截断帧先不出消息，补齐后解出`() {
-        val encoded = NetplayCodec.encode(NetplayMessage.Welcome("阿吹"))
+        val encoded = NetplayCodec.encode(NetplayMessage.Welcome("阿吹", Seat.P2, 4))
         val assembler = FrameAssembler()
         val out = ArrayList<NetplayMessage>()
 
         assembler.feed(encoded, 3, out) // 只有长度前缀的一部分
         assertTrue(out.isEmpty())
         assembler.feed(encoded.copyOfRange(3, encoded.size), encoded.size - 3, out) // 余下部分
-        assertEquals(listOf<NetplayMessage>(NetplayMessage.Welcome("阿吹")), out)
+        assertEquals(listOf<NetplayMessage>(NetplayMessage.Welcome("阿吹", Seat.P2, 4)), out)
     }
 
     @Test

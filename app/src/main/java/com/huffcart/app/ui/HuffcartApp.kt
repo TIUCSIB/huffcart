@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,15 +39,18 @@ import androidx.navigation.navArgument
 import com.huffcart.app.ui.library.GenreCatalog
 import com.huffcart.app.ui.library.LibraryState
 import com.huffcart.app.ui.library.rememberLibraryState
+import com.huffcart.app.ui.screens.AudioSettingsScreen
 import com.huffcart.app.ui.screens.CategoriesScreen
 import com.huffcart.app.ui.screens.CategoryScreen
+import com.huffcart.app.ui.screens.CreateRoomScreen
 import com.huffcart.app.ui.screens.DetailScreen
+import com.huffcart.app.ui.screens.DisplaySettingsScreen
 import com.huffcart.app.ui.screens.GameScreen
 import com.huffcart.app.ui.screens.HomeScreen
 import com.huffcart.app.ui.screens.KeyMappingScreen
-import com.huffcart.app.ui.screens.LibraryScreen
 import com.huffcart.app.ui.screens.NetplayScreen
 import com.huffcart.app.ui.screens.RoomScreen
+import com.huffcart.app.ui.screens.SaveManagementScreen
 import com.huffcart.app.ui.screens.SettingsScreen
 import com.huffcart.app.ui.screens.SplashScreen
 import com.huffcart.app.ui.theme.HcCream
@@ -62,11 +65,11 @@ private data class TopDestination(
 
 private const val ROUTE_SPLASH = "splash"
 private const val ROUTE_HOME = "home"
-private const val ROUTE_LIBRARY = "library"
+private const val ROUTE_NETPLAY = "netplay"
 
 private val topDestinations = listOf(
     TopDestination(route = ROUTE_HOME, label = "首页", icon = Icons.Filled.Home),
-    TopDestination(route = ROUTE_LIBRARY, label = "游戏库", icon = Icons.Filled.SportsEsports),
+    TopDestination(route = ROUTE_NETPLAY, label = "联机", icon = Icons.Filled.Groups),
     TopDestination(route = "mine", label = "我的", icon = Icons.Filled.Person),
 )
 
@@ -82,7 +85,7 @@ fun HuffcartApp() {
     LaunchedEffect(Unit) {
         val fromAdb = (navController.context as? android.app.Activity)
             ?.intent?.getBooleanExtra("open_netplay", false) == true
-        if (fromAdb) navController.navigate("netplay")
+        if (fromAdb) navController.navigate(ROUTE_NETPLAY)
     }
 
     Scaffold(
@@ -160,21 +163,26 @@ fun HuffcartApp() {
                         navController.navigate("detail/${android.net.Uri.encode(name)}")
                     },
                     onOpenCategories = { navController.navigate("categories") },
-                    onOpenNetplay = { navController.navigate("netplay") },
                 )
             }
-            composable(ROUTE_LIBRARY) {
-                LibraryScreen(
-                    state = libraryState,
-                    onOpenDetail = { name ->
-                        navController.navigate("detail/${android.net.Uri.encode(name)}")
-                    },
-                    onOpenCategories = { navController.navigate("categories") },
+            composable(ROUTE_NETPLAY) {
+                NetplayScreen(
+                    onOpenRoom = { navController.navigate("room") { launchSingleTop = true } },
+                    onCreateRoom = { navController.navigate("netplay/create") },
+                )
+            }
+            composable("netplay/create") {
+                CreateRoomScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenRoom = { navController.navigate("room") { launchSingleTop = true } },
                 )
             }
             composable("mine") {
                 SettingsScreen(
                     onOpenKeyMapping = { navController.navigate("keymapping") },
+                    onOpenDisplaySettings = { navController.navigate("displaysettings") },
+                    onOpenAudioSettings = { navController.navigate("audiosettings") },
+                    onOpenSaveManagement = { navController.navigate("savemanagement") },
                 )
             }
             composable("categories") {
@@ -222,11 +230,14 @@ fun HuffcartApp() {
             composable("keymapping") {
                 KeyMappingScreen(onBack = { navController.popBackStack() })
             }
-            composable("netplay") {
-                NetplayScreen(
-                    onBack = { navController.popBackStack() },
-                    onOpenRoom = { navController.navigate("room") { launchSingleTop = true } },
-                )
+            composable("displaysettings") {
+                DisplaySettingsScreen(onBack = { navController.popBackStack() })
+            }
+            composable("audiosettings") {
+                AudioSettingsScreen(onBack = { navController.popBackStack() })
+            }
+            composable("savemanagement") {
+                SaveManagementScreen(onBack = { navController.popBackStack() })
             }
             composable("room") {
                 RoomScreen(
