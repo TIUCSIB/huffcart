@@ -39,6 +39,9 @@ static size_t (*p_retro_get_memory_size)(unsigned);
 static size_t (*p_retro_serialize_size)(void);
 static bool (*p_retro_serialize)(void *, size_t);
 static bool (*p_retro_unserialize)(const void *, size_t);
+/* 金手指（cheat-codes）：可选能力——核心不支持时保持 NULL，金手指禁用而不阻塞加载 */
+static void (*p_retro_cheat_reset)(void);
+static void (*p_retro_cheat_set)(unsigned, bool, const char *);
 
 /* --- 状态 --- */
 static JavaVM *vm;
@@ -201,6 +204,12 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeLoadCore(JNIEnv *env, jobject
     SYM(retro_reset); SYM(retro_get_memory_data); SYM(retro_get_memory_size);
     SYM(retro_serialize_size); SYM(retro_serialize); SYM(retro_unserialize);
 #undef SYM
+    /* cheat 符号软解析：缺失仅禁用金手指（不进硬失败 SYM） */
+    *(void **)(&p_retro_cheat_reset) = dlsym(core_lib, "retro_cheat_reset");
+    *(void **)(&p_retro_cheat_set) = dlsym(core_lib, "retro_cheat_set");
+    if (!p_retro_cheat_reset || !p_retro_cheat_set) {
+        LOGI("核心不支持金手指（retro_cheat_* 缺失），能力禁用");
+    }
 
     p_retro_set_environment(environment_cb);
     p_retro_set_video_refresh(video_refresh_cb);
@@ -340,6 +349,28 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeSetMemory(JNIEnv *env, jobjec
     if ((size_t)len > n)
         len = (jsize)n;
     (*env)->GetByteArrayRegion(env, data, 0, len, (jbyte *)p);
+    return JNI_TRUE;
+}
+
+/* 金手指批应用（cheat-codes）：reset 清空码集后逐条 set(enabled)。
+   libretro 惯例：核心每帧自行应用码集；须在游戏线程调用（与 retro_run 同线程）。 */
+JNIEXPORT jboolean JNICALL
+Java_com_huffcart_core_libretro_LibretroCore_nativeApplyCheats(JNIEnv *env, jobject thiz,
+                                                               jobjectArray codes) {
+    if (!p_retro_cheat_reset || !p_retro_cheat_set)
+        return JNI_FALSE;
+    p_retro_cheat_reset();
+    jsize n = (*env)->GetArrayLength(env, codes);
+    for (jsize i = 0; i < n; i++) {
+        jstring js = (*env)->GetObjectArrayElement(env, codes, i);
+        if (!js) continue;
+        const char *code = (*env)->GetStringUTFChars(env, js, NULL);
+        if (code) {
+            p_retro_cheat_set((unsigned)i, true, code);
+            (*env)->ReleaseStringUTFChars(env, js, code);
+        }
+        (*env)->DeleteLocalRef(env, js);
+    }
     return JNI_TRUE;
 }
 

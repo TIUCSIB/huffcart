@@ -87,6 +87,9 @@ import com.huffcart.app.netplay.NetplayMessage
 import com.huffcart.app.netplay.Seat
 import com.huffcart.app.netplay.crc32OfVideo
 import com.huffcart.app.ui.game.AudioSettingsStore
+import com.huffcart.app.ui.game.CheatEntry
+import com.huffcart.app.ui.game.CheatPanel
+import com.huffcart.app.ui.game.CheatStore
 import com.huffcart.app.ui.game.ControlScheme
 import com.huffcart.app.ui.game.ControlSchemeStore
 import com.huffcart.app.ui.game.DisplayAspect
@@ -146,11 +149,22 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
     var netplayOver by remember { mutableStateOf(false) }
     // 槽位面板（audio-settings-and-save-management）：菜单「存档/读档」点开后弹出，选槽即存/读
     var slotPanel by remember { mutableStateOf<SaveSlotPanelMode?>(null) }
+    // 金手指面板（cheat-codes）：菜单「金手指」打开；条目状态本地持有，变更即落盘并批应用
+    var cheatPanelOpen by remember { mutableStateOf(false) }
+    var cheatEntries by remember(romName) {
+        mutableStateOf(CheatStore.load(context, SaveSlotStore.baseName(romName)))
+    }
+    // 连发（turbo-and-auto-resume）：会话内开关，默认关
+    var turboOn by remember { mutableStateOf(false) }
     val netplay = remember(romName) { NetplayManager.consumePendingGame() }
     val session = remember(romName) {
         runCatching { GameSession(context, romName, netplay) }
             .onFailure { fatal = it.message ?: it.toString() }
             .getOrNull()
+    }
+    // 断点续玩：单机进入且存在挂起档时询问（须在 session 声明后初始化）
+    var resumeAsk by remember(romName) {
+        mutableStateOf(session != null && netplay == null && session.suspendAvailable)
     }
 
     DisposableEffect(romName) {
@@ -255,9 +269,24 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
             }
         } else {
             var menuOpen by remember { mutableStateOf(false) }
+            // 弹出窗口跨旋转会因焦点等待超时触发 ANR（game-menu-rotation-anr）：布局形态
+            // 切换即收起菜单与面板。组合期判断（非 LaunchedEffect——后者首次运行会误清初值）
+            var lastPortrait by remember { mutableStateOf(isPortrait) }
+            if (isPortrait != lastPortrait) {
+                lastPortrait = isPortrait
+                menuOpen = false
+                slotPanel = null
+                cheatPanelOpen = false
+                resumeAsk = false
+            }
             val cycleFf = {
                 ffRate = if (ffRate >= 3) 1 else ffRate + 1
                 session.ffFactor = ffRate
+            }
+            val toggleTurbo = {
+                turboOn = !turboOn
+                session.setTurbo(turboOn)
+                feedback = if (turboOn) "连发开：按住 A/B 自动连打" else "连发关"
             }
             val netplayActive = netplay != null && !netplayOver
             slotPanel?.let { mode ->
@@ -284,6 +313,46 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                     onDismiss = { slotPanel = null },
                 )
             }
+            if (cheatPanelOpen) {
+                CheatPanel(
+                    entries = cheatEntries,
+                    onToggle = { index ->
+                        cheatEntries = cheatEntries.mapIndexed { i, e ->
+                            if (i == index) e.copy(enabled = !e.enabled) else e
+                        }
+                        CheatStore.save(context, SaveSlotStore.baseName(romName), cheatEntries)
+                        session.requestApplyCheats(cheatEntries.filter { it.enabled }.map { it.code })
+                    },
+                    onDelete = { index ->
+                        cheatEntries = cheatEntries.filterIndexed { i, _ -> i != index }
+                        CheatStore.save(context, SaveSlotStore.baseName(romName), cheatEntries)
+                        session.requestApplyCheats(cheatEntries.filter { it.enabled }.map { it.code })
+                    },
+                    onAdd = { code ->
+                        cheatEntries = cheatEntries + CheatEntry(code, enabled = true)
+                        CheatStore.save(context, SaveSlotStore.baseName(romName), cheatEntries)
+                        session.requestApplyCheats(cheatEntries.filter { it.enabled }.map { it.code })
+                    },
+                    onDismiss = { cheatPanelOpen = false },
+                )
+            }
+            if (resumeAsk) {
+                FcOptionDialog(
+                    title = "继续上次进度？",
+                    options = listOf("resume" to "继续上次", "restart" to "重新开始"),
+                    current = "",
+                    onSelect = { which ->
+                        resumeAsk = false
+                        if (which == "resume") {
+                            session.requestResumeSuspend()
+                        } else {
+                            session.discardSuspend()
+                        }
+                    },
+                    // 关闭不选择：保留挂起档，下次进入再问
+                    onDismiss = { resumeAsk = false },
+                )
+            }
             if (isPortrait) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     GameTopBar(
@@ -294,6 +363,9 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                         onSave = { slotPanel = SaveSlotPanelMode.SAVE },
                         onLoad = { slotPanel = SaveSlotPanelMode.LOAD },
                         onCycleFf = cycleFf,
+                        turboOn = turboOn,
+                        onToggleTurbo = toggleTurbo,
+                        onOpenCheats = { cheatPanelOpen = true },
                         onExit = onExit,
                     )
                     Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -338,6 +410,9 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                         onSave = { slotPanel = SaveSlotPanelMode.SAVE },
                         onLoad = { slotPanel = SaveSlotPanelMode.LOAD },
                         onCycleFf = cycleFf,
+                        turboOn = turboOn,
+                        onToggleTurbo = toggleTurbo,
+                        onOpenCheats = { cheatPanelOpen = true },
                         onExit = onExit,
                         modifier = Modifier.align(Alignment.TopEnd),
                     )
@@ -362,6 +437,9 @@ private fun GameTopBar(
     onSave: () -> Unit,
     onLoad: () -> Unit,
     onCycleFf: () -> Unit,
+    turboOn: Boolean,
+    onToggleTurbo: () -> Unit,
+    onOpenCheats: () -> Unit,
     onExit: () -> Unit,
 ) {
     Row(
@@ -403,6 +481,9 @@ private fun GameTopBar(
                     onSave = onSave,
                     onLoad = onLoad,
                     onCycleFf = onCycleFf,
+                    turboOn = turboOn,
+                    onToggleTurbo = onToggleTurbo,
+                    onOpenCheats = onOpenCheats,
                     onExit = onExit,
                 )
             }
@@ -420,6 +501,9 @@ private fun GameMenuItems(
     onSave: () -> Unit,
     onLoad: () -> Unit,
     onCycleFf: () -> Unit,
+    turboOn: Boolean,
+    onToggleTurbo: () -> Unit,
+    onOpenCheats: () -> Unit,
     onExit: () -> Unit,
 ) {
     if (!netplayActive) {
@@ -444,6 +528,20 @@ private fun GameMenuItems(
                 onCycleFf()
             },
         )
+        DropdownMenuItem(
+            text = { Text("连发 A/B（${if (turboOn) "开" else "关"}）") },
+            onClick = {
+                onDismiss()
+                onToggleTurbo()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text("金手指") },
+            onClick = {
+                onDismiss()
+                onOpenCheats()
+            },
+        )
     }
     DropdownMenuItem(
         text = { Text("退出游戏", color = HcRed) },
@@ -465,6 +563,9 @@ private fun GameFloatingMenu(
     onSave: () -> Unit,
     onLoad: () -> Unit,
     onCycleFf: () -> Unit,
+    turboOn: Boolean,
+    onToggleTurbo: () -> Unit,
+    onOpenCheats: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -497,6 +598,9 @@ private fun GameFloatingMenu(
                 onSave = onSave,
                 onLoad = onLoad,
                 onCycleFf = onCycleFf,
+                turboOn = turboOn,
+                onToggleTurbo = onToggleTurbo,
+                onOpenCheats = onOpenCheats,
                 onExit = onExit,
             )
         }
@@ -637,6 +741,41 @@ private class GameSession(
     @Volatile
     private var localSeatMask = 0
 
+    /** 待应用的金手指码（cheat-codes）：UI 线程写 / 游戏线程读。 */
+    @Volatile
+    private var cheatCodesToApply: List<String> = emptyList()
+
+    // ---- 连发（turbo-and-auto-resume）：开关会话内生效；A/B 用户按住镜像始终维护，
+    //      连发开启时 A/B 由游戏循环按帧相位驱动（不在事件路径做相位——半周期置位无法撤回） ----
+
+    /** 连发开关：UI 菜单写 / 游戏线程读；不持久化（小霸王 TURBO 语义），默认关。 */
+    @Volatile
+    var turboEnabled: Boolean = false
+
+    @Volatile
+    private var userA = false
+
+    @Volatile
+    private var userB = false
+
+    fun setTurbo(enabled: Boolean) { turboEnabled = enabled }
+
+    // ---- 断点续玩：退出序列在游戏线程保存挂起档；重进由 UI 询问恢复或重新开始 ----
+
+    /** 挂起档是否存在（构造时判定，供 UI 决定是否呈现续玩询问）。 */
+    val suspendAvailable: Boolean
+        get() = suspendFile.isFile
+
+    @Volatile
+    private var suspendRequested = false
+
+    private var suspendSaved = false // 游戏线程私有
+
+    fun requestResumeSuspend() { pendingCommand.set(ResumeSuspendCmd) }
+
+    /** 选择「重新开始」：清除挂起档，本次会话照常从开机状态运行。 */
+    fun discardSuspend() { suspendFile.delete() }
+
     private val romsDir = File(context.filesDir, "roms").apply { mkdirs() }
     val savesDir = File(context.filesDir, SaveSlotStore.DIR_NAME).apply { mkdirs() }
     private val systemDir = File(context.filesDir, "system").apply { mkdirs() }
@@ -644,8 +783,17 @@ private class GameSession(
     private val coreLib = File(context.applicationInfo.nativeLibraryDir, "libfceumm_libretro.so")
     private val srmFile = savesDir.resolve(romName.removeSuffix(".nes") + ".srm")
 
+    /** 挂起档（turbo-and-auto-resume「断点续玩」）：独立于槽位（.stateN）与 SRAM 的退出快照。 */
+    private val suspendFile = savesDir.resolve(SaveSlotStore.baseName(romName) + ".resume")
+
     /** 声音设置（audio-settings-and-save-management）：会话构造时读一次，进游戏生效。 */
     private val audio = AudioSettingsStore.load(context)
+
+    /** 初始金手指（cheat-codes）：构造时读已启用的码，游戏线程 loop 起始注入（联机排除）。 */
+    private val initialCheats: List<String> =
+        CheatStore.load(context, SaveSlotStore.baseName(romName))
+            .filter { it.enabled }
+            .map { it.code }
 
     /** 画面比例（pad-feedback-and-display-settings）：会话构造时读一次；设置页仅主界面可达，
      *  改完重进游戏即新值。 */
@@ -689,10 +837,21 @@ private class GameSession(
 
     fun requestLoadState(slot: Int) { pendingCommand.set(LoadStateCmd(slot)) }
 
+    /** 金手指批应用（cheat-codes）：UI 传全部已启用码，游戏线程 reset+逐条 set。 */
+    fun requestApplyCheats(codes: List<String>) {
+        cheatCodesToApply = codes
+        pendingCommand.set(ApplyCheatsCmd)
+    }
+
     /** 本机物理输入入口（触控 + 键盘）：单机写 P1；联机按席位映射（netplay-lobby-v2）。 */
     fun onLocalButton(button: RetroButton, pressed: Boolean) {
         val np = netplay
         if (np == null) {
+            // A/B 镜像始终维护（连发开启/关闭切换时能还原真实按住状态）
+            if (button == RetroButton.A) userA = pressed
+            if (button == RetroButton.B) userB = pressed
+            // 连发开启时 A/B 交给游戏循环按帧相位驱动
+            if (turboEnabled && (button == RetroButton.A || button == RetroButton.B)) return
             core.setButton(0, button, pressed)
             return
         }
@@ -726,6 +885,8 @@ private class GameSession(
     private sealed interface SessionCommand
     private data class SaveStateCmd(val slot: Int) : SessionCommand
     private data class LoadStateCmd(val slot: Int) : SessionCommand
+    private data object ApplyCheatsCmd : SessionCommand
+    private data object ResumeSuspendCmd : SessionCommand
     private val pendingCommand = AtomicReference<SessionCommand?>(null)
 
     fun start() {
@@ -848,9 +1009,28 @@ private class GameSession(
             }
         }
         var frameNo = 0
+        // 初始金手指注入（cheat-codes）：单机起跑即应用已启用的码；联机不注入（spec「联机不可用」）
+        if (np == null && initialCheats.isNotEmpty()) {
+            if (!core.applyCheats(initialCheats)) {
+                notifyEvent("核心不支持金手指")
+            }
+        }
         // 各席位最后应用的掩码（索引 = Seat.ordinal；房主侧 P2–P4 / 加入端全席位）
         val lastAppliedMasks = IntArray(4)
-        while (running) {
+        // 连发驱动状态（游戏线程私有）：记录上次驱动到的 A/B 相位，关闭时还原用户真实状态
+        var drivenA = false
+        var drivenB = false
+        // 断点续玩：stop() 置 suspendRequested（先于 running=false），loop 顶部在游戏线程
+        // 保存挂起档后退出——放顶部保证 surface 缺失等提前 continue 路径也能完成保存
+        while (running || suspendRequested) {
+            if (suspendRequested && !suspendSaved) {
+                suspendSaved = true
+                val snapshot = core.saveState()
+                if (snapshot != null) {
+                    runCatching { suspendFile.writeBytes(snapshot) }
+                }
+            }
+            if (!running) break
             // ---- 联机帧首：装配本帧核心输入（netplay-lobby-v2：四席位）----
             if (netplayLive && np != null) {
                 when (np.role) {
@@ -909,6 +1089,21 @@ private class GameSession(
                 }
             }
 
+            // 连发驱动（turbo-and-auto-resume）：开启时 A/B 按帧相位合成（60fps 下每 2 帧翻转
+            // = 15Hz），仅在用户按住期间产生输入；关闭时把 A/B 还原为用户真实按住状态
+            if (!netplayLive) {
+                if (turboEnabled) {
+                    val phase = frameNo / 2 % 2 == 1
+                    val a = userA && phase
+                    val b = userB && phase
+                    if (a != drivenA) { core.setButton(0, RetroButton.A, a); drivenA = a }
+                    if (b != drivenB) { core.setButton(0, RetroButton.B, b); drivenB = b }
+                } else {
+                    if (userA != drivenA) { core.setButton(0, RetroButton.A, userA); drivenA = userA }
+                    if (userB != drivenB) { core.setButton(0, RetroButton.B, userB); drivenB = userB }
+                }
+            }
+
             // 快进：每墙钟帧连跑 factor 个模拟帧，只渲染/写末帧的音画；
             // 联机中钳制为 1x（双方节拍必须一致，spec「联机期间限制」）
             val factor = if (netplayLive) 1 else ffFactor.coerceIn(1, 3)
@@ -950,6 +1145,21 @@ private class GameSession(
                     val ok = file.exists() &&
                         runCatching { core.loadState(file.readBytes()) }.getOrDefault(false)
                     notifyEvent(if (ok) "已读档（槽位 ${cmd.slot + 1}）" else "暂无存档")
+                }
+                ApplyCheatsCmd -> {
+                    val ok = core.applyCheats(cheatCodesToApply)
+                    notifyEvent(if (ok) "金手指已更新" else "核心不支持金手指")
+                }
+                ResumeSuspendCmd -> {
+                    val ok = suspendFile.isFile &&
+                        runCatching { core.loadState(suspendFile.readBytes()) }.getOrDefault(false)
+                    if (ok) {
+                        suspendFile.delete()
+                        notifyEvent("已恢复上次进度")
+                    } else {
+                        // 挂起档失效：清除，游戏保持从开机状态继续
+                        suspendFile.delete()
+                    }
                 }
                 null -> Unit
             }
@@ -1069,6 +1279,8 @@ private class GameSession(
     fun stop() {
         println("[StopSeq] stop entry: running=$running loopAlive=${loopThread?.isAlive}")
         if (!running && loopThread == null) return
+        // 断点续玩：单机退出即请求挂起（先于 running=false，游戏线程 loop 顶部完成保存）
+        if (netplay == null) suspendRequested = true
         running = false
         pendingCommand.set(null)
         // 等满 5s：加入端循环可能阻塞在"等主机输入"（3s 超时）上，必须等

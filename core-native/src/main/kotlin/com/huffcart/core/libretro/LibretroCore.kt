@@ -95,6 +95,12 @@ class LibretroCore : RetroCore {
     /** 恢复状态快照；核心拒收（大小/版本不符）返回 false。须在游戏线程调用。 */
     fun loadState(data: ByteArray): Boolean = nativeLoadState(data)
 
+    /**
+     * 金手指批应用（cheat-codes）：reset 清空码集后逐条 set(enabled)，
+     * 核心此后每帧自行应用。须在游戏线程调用；核心不支持时返回 false。
+     */
+    fun applyCheats(codes: List<String>): Boolean = nativeApplyCheats(codes.toTypedArray())
+
     override fun setButton(player: Int, button: RetroButton, pressed: Boolean) {
         val bit = when (button) {
             RetroButton.B -> 1 shl 0
@@ -144,4 +150,5 @@ class LibretroCore : RetroCore {
     private external fun nativeSetMemory(region: Int, data: ByteArray): Boolean
     private external fun nativeSaveState(): ByteArray?
     private external fun nativeLoadState(data: ByteArray): Boolean
+    private external fun nativeApplyCheats(codes: Array<String>): Boolean
 }
