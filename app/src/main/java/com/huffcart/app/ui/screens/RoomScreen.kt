@@ -117,7 +117,7 @@ fun RoomScreen(
                     .background(Color(0x14000000), RoundedCornerShape(12.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
-                InfoCell("房间码", if (room.isHost) (roomCode ?: "—") else "—", Modifier.weight(1f))
+                InfoCell("房间码", roomCode ?: "—", Modifier.weight(1f))
                 InfoCell("状态", statusText, Modifier.weight(1f))
                 InfoCell("人数", "${room.playerCount}/$capacity", Modifier.weight(1f))
             }

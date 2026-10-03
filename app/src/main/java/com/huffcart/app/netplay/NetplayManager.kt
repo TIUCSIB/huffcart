@@ -107,6 +107,9 @@ object NetplayManager {
     private var joinSession: JoinSession? = null
     private var hostNickname: String = ""
 
+    /** 加入端记录的房主地址（房间码展示用：与房主本机算出的码同源）。 */
+    private var joinedHostAddress: String? = null
+
     /** 已通过 ROM 校验的加入端席位（房主端状态）。 */
     private val verifiedSeats = HashSet<Seat>()
 
@@ -265,6 +268,7 @@ object NetplayManager {
         ensureInit(context)
         resetSessionState()
         lobbyError = null
+        joinedHostAddress = host
         joining = true
         Thread {
             try {
@@ -309,6 +313,7 @@ object NetplayManager {
         session.onWelcome = { hostNick, seat, capacity ->
             mainHandler.post {
                 hostNickname = hostNick
+                roomCode = RoomCode.fromIp(joinedHostAddress ?: "")
                 room = RoomUi(
                     isHost = false,
                     players = listOf(PlayerInfo(Seat.P1, hostNick), PlayerInfo(seat, nickname)),
@@ -412,6 +417,7 @@ object NetplayManager {
         roomCode = null
         pendingGame = null
         verifiedSeats.clear()
+        joinedHostAddress = null
         gameActive.set(false)
     }
 
@@ -646,6 +652,7 @@ object NetplayManager {
     }
 
     private fun resetSessionState() {
+        joinedHostAddress = null
         hostSessions.values.forEach { it.close() }
         hostSessions.clear()
         verifiedSeats.clear()
