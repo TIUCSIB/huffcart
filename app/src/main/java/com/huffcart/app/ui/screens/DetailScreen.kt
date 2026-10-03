@@ -68,6 +68,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.imageResource
 import com.huffcart.app.R
+import com.huffcart.app.ui.game.RomPlatform
 
 /** 游戏详情页（game-library）：hero 封面 + 标签 + 简介/文件信息 + 开始游戏 + 菜单移除。 */
 @Composable
@@ -83,6 +84,7 @@ fun DetailScreen(
         romName.substringBeforeLast('.', romName)
     }
     val entry = remember(romName) { GenreCatalog.lookup(romName) }
+    val platform = remember(romName) { RomPlatform.fromExtension(romName) ?: RomPlatform.FC }
     val romFile = remember(romName) {
         File(context.filesDir, "roms").resolve(romName)
     }
@@ -157,7 +159,7 @@ fun DetailScreen(
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TagChip(text = entry?.genre?.label ?: "未分类")
-                TagChip(text = "FC")
+                TagChip(text = platform.label)
             }
             Spacer(modifier = Modifier.height(16.dp))
             if (entry?.summary != null) {
@@ -168,7 +170,7 @@ fun DetailScreen(
                 )
             } else {
                 Text(
-                    text = "文件大小：${romFile.length() / 1024} KB\n格式：iNES (.nes)",
+                    text = "文件大小：${romFile.length() / 1024} KB\n格式：${platform.formatText}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

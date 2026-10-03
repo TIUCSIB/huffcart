@@ -72,7 +72,7 @@ class RomLibraryImportTest {
         )
         val result = import(dir, "合集.zip", bytes)
         assertIs<RomLibrary.ImportResult.Invalid>(result)
-        assertEquals("压缩包内没有有效的 FC ROM", result.message)
+        assertEquals("压缩包内没有有效的 ROM", result.message)
         assertTrue(nesFiles(dir).isEmpty())
     }
 

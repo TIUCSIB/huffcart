@@ -24,8 +24,9 @@ object SaveSlotStore {
 
     private val slotFileRegex = Regex("^(.+)\\.state([0-${SLOT_COUNT - 1}])$")
 
-    /** 库/详情展示名 → 存档文件基名（沿用历史 .nes 剥离约定）。 */
-    fun baseName(romName: String): String = romName.removeSuffix(".nes")
+    /** 库文件名 → 存档文件基名（gb-gbc-platform 决策 3）：
+     *  FC 沿用历史 .nes 剥离约定（零迁移）；GB/GBC 保留完整文件名——跨平台同名不串档。 */
+    fun baseName(romName: String): String = if (romName.endsWith(".nes")) romName.removeSuffix(".nes") else romName
 
     fun stateFile(savesDir: File, romName: String, slot: Int): File =
         savesDir.resolve("${baseName(romName)}.state$slot")

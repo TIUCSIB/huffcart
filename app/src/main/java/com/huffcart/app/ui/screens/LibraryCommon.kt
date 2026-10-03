@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.imageResource
 import com.huffcart.app.R
+import com.huffcart.app.ui.game.RomPlatform
 
 /** 全 app 封面图统一比例：FC 原生 256:240（首页卡片 / 游戏库列表缩略 / 详情 hero）。 */
 val CoverAspect = 256f / 240f
@@ -211,7 +212,7 @@ fun GameListRow(rom: File, coverEpoch: Int, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "FC",
+                text = RomPlatform.fromExtension(rom.name)?.label ?: "FC",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

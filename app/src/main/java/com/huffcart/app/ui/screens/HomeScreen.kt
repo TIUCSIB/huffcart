@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.huffcart.app.ui.game.RomPlatform
 import com.huffcart.app.ui.AppTopBar
 import com.huffcart.app.ui.library.CoverImage
 import com.huffcart.app.ui.library.CoverStore
@@ -260,7 +261,7 @@ private fun CoverCard(
             }
         }
         Text(
-            text = "FC",
+            text = RomPlatform.fromExtension(rom.name)?.label ?: "FC",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -72,4 +72,19 @@ class SaveSlotStoreTest {
         assertEquals(0, slots[0]?.slot)
         assertEquals(listOf("Legacy"), SaveSlotStore.gamesWithSlots(dir))
     }
+
+    @Test
+    fun baseNamePlatformSchemeIsolatesCrossPlatformSameName() {
+        // FC 历史约定剥 .nes;GB/GBC 保留完整文件名——跨平台同名互不串档
+        assertEquals("塞尔达", SaveSlotStore.baseName("塞尔达.nes"))
+        assertEquals("宝可梦.gb", SaveSlotStore.baseName("宝可梦.gb"))
+        assertEquals("水晶.gbc", SaveSlotStore.baseName("水晶.gbc"))
+
+        val dir = tempDir()
+        SaveSlotStore.writeState(dir, "塞尔达.nes", 0, byteArrayOf(1))
+        SaveSlotStore.writeState(dir, "塞尔达.gb", 0, byteArrayOf(2))
+        assertEquals("塞尔达.state0", SaveSlotStore.stateFile(dir, "塞尔达.nes", 0).name)
+        assertEquals("塞尔达.gb.state0", SaveSlotStore.stateFile(dir, "塞尔达.gb", 0).name)
+        assertEquals(2, SaveSlotStore.gamesWithSlots(dir).size)
+    }
 }

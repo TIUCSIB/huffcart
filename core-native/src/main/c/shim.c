@@ -1,5 +1,5 @@
 /* libretro 核心宿主 shim：
- * - dlopen 核心 .so（libfceumm_libretro.so），dlsym 全部入口
+ * - dlopen 核心 .so（lib<core>_libretro.so,核心由平台决定）,dlsym 全部入口
  * - retro_* 回调转接：视频帧/音频采样拷入 JVM 侧复用缓冲，输入 up-call 位掩码
  * 线程纪律：retro_run 与其触发的全部回调都发生在调用 nativeRunFrame 的
  * 单一游戏线程上，该线程的 JNIEnv 缓存在 game_env；回调不得跨线程使用。 */
@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <android/log.h>
+#include <stdio.h>
 #include "libretro_cbs.h"
 
 #define TAG "corenative"
@@ -17,6 +18,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 static void *core_lib;
+static int pixel_format;            /* 0=XRGB8888,1=RGB565(SET_PIXEL_FORMAT 捕获) */
 
 /* --- 核心 API 符号 --- */
 static void (*p_retro_init)(void);
@@ -62,6 +64,9 @@ static double timing_fps = 60.0;
 static double timing_rate = 48000.0;
 static jint last_audio_shorts;      /* 上一帧写入 audio_buf 的 short 数 */
 static char *rom_path;              /* 由核心在 load_game 期间持有，下次加载前不释放 */
+static void *rom_data;              /* need_fullpath=false 的核心要求前端读入内存（gambatte） */
+static size_t rom_size;
+static int core_need_fullpath;      /* 由 retro_get_system_info 捕获（load_core 时） */
 
 static void shim_log(enum retro_log_level level, const char *fmt, ...) {
     char line[1024];
@@ -85,10 +90,21 @@ static bool environment_cb(unsigned cmd, void *data) {
         return true;
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
         unsigned fmt = *(unsigned *)data;
-        if (fmt != RETRO_PIXEL_FORMAT_XRGB8888)
-            LOGE("核心请求了非 XRGB8888 像素格式 %u（将按 XRGB 处理）", fmt);
-        return true;
+        if (fmt == RETRO_PIXEL_FORMAT_XRGB8888) {
+            pixel_format = 0;
+            return true;
+        }
+        if (fmt == RETRO_PIXEL_FORMAT_RGB565) {
+            /* gb-gbc-platform:Gambatte 输出 RGB565,刷新回调按 2 字节/像素转换 */
+            pixel_format = 1;
+            return true;
+        }
+        LOGE("核心请求了不支持像素格式 %u（拒绝，核心应回退）", fmt);
+        return false;
     }
+    case 21: /* RETRO_ENVIRONMENT_SET_SAMPLE_RATE(cbs 头未定义该常量) */
+        timing_rate = *(double *)data;
+        return true;
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
         if (!system_dir) return false;
         *(const char **)data = system_dir;
@@ -119,18 +135,31 @@ static void video_refresh_cb(const void *data, unsigned w, unsigned h, size_t pi
     void *dst = (*env)->GetPrimitiveArrayCritical(env, video_buf, NULL);
     if (!dst)
         return;
-    const uint32_t *src = data;
     uint32_t *d = dst;
-    if (pitch == (size_t)w * 4) {
-        const size_t n = (size_t)w * h;
-        for (size_t i = 0; i < n; i++)
-            d[i] = src[i] | 0xFF000000u;
-    } else {
+    if (pixel_format == 1) {
+        /* RGB565 → XRGB8888(2 字节/像素,pitch 按 2 字节步进) */
         for (unsigned y = 0; y < h; y++) {
-            const uint32_t *s = (const uint32_t *)((const uint8_t *)data + y * pitch);
+            const uint16_t *s = (const uint16_t *)((const uint8_t *)data + y * pitch);
             uint32_t *row = d + (size_t)y * w;
-            for (unsigned x = 0; x < w; x++)
-                row[x] = s[x] | 0xFF000000u;
+            for (unsigned x = 0; x < w; x++) {
+                unsigned v = s[x];
+                unsigned r5 = (v >> 11) & 0x1F, g6 = (v >> 5) & 0x3F, b5 = v & 0x1F;
+                row[x] = 0xFF000000u | ((r5 * 255 / 31) << 16) | ((g6 * 255 / 63) << 8) | (b5 * 255 / 31);
+            }
+        }
+    } else {
+        const uint32_t *src = data;
+        if (pitch == (size_t)w * 4) {
+            const size_t n = (size_t)w * h;
+            for (size_t i = 0; i < n; i++)
+                d[i] = src[i] | 0xFF000000u;
+        } else {
+            for (unsigned y = 0; y < h; y++) {
+                const uint32_t *s = (const uint32_t *)((const uint8_t *)data + y * pitch);
+                uint32_t *row = d + (size_t)y * w;
+                for (unsigned x = 0; x < w; x++)
+                    row[x] = s[x] | 0xFF000000u;
+            }
         }
     }
     (*env)->ReleasePrimitiveArrayCritical(env, video_buf, dst, 0);
@@ -183,9 +212,12 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeLoadCore(JNIEnv *env, jobject
     (*env)->ReleaseStringUTFChars(env, libPath, path);
     if (!core_lib) {
         /* extractNativeLibs=false 时库不打盘（留在 APK 内），
-           全路径不存在，按 SONAME 走应用 linker 命名空间解析 */
-        LOGI("全路径 dlopen 失败（%s），改按 SONAME 解析", dlerror());
-        core_lib = dlopen("libfceumm_libretro.so", RTLD_NOW | RTLD_LOCAL);
+           全路径不存在，按 SONAME（传入路径的基名）走应用 linker 命名空间解析
+           —— gb-gbc-platform:多核心后 SONAME 由平台决定,不得硬编码 */
+        const char *base = strrchr(path, '/');
+        base = base ? base + 1 : path;
+        LOGI("全路径 dlopen 失败（%s），改按 SONAME 解析: %s", dlerror(), base);
+        core_lib = dlopen(base, RTLD_NOW | RTLD_LOCAL);
     }
     if (!core_lib) {
         LOGE("dlopen 失败: %s", dlerror());
@@ -204,6 +236,11 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeLoadCore(JNIEnv *env, jobject
     SYM(retro_reset); SYM(retro_get_memory_data); SYM(retro_get_memory_size);
     SYM(retro_serialize_size); SYM(retro_serialize); SYM(retro_unserialize);
 #undef SYM
+    /* 捕获 ROM 传递模式:need_fullpath=true 走路径,false 要求前端读入内存 */
+    struct retro_system_info si = {0};
+    p_retro_get_system_info(&si);
+    core_need_fullpath = si.need_fullpath ? 1 : 0;
+    LOGI("核心: %s (need_fullpath=%d)", si.library_name ? si.library_name : "?", core_need_fullpath);
     /* cheat 符号软解析：缺失仅禁用金手指（不进硬失败 SYM） */
     *(void **)(&p_retro_cheat_reset) = dlsym(core_lib, "retro_cheat_reset");
     *(void **)(&p_retro_cheat_set) = dlsym(core_lib, "retro_cheat_set");
@@ -264,10 +301,30 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeLoadGame(JNIEnv *env, jobject
        保留 UTF-8 串到下一次加载/卸载时再释放 */
     free(rom_path);
     rom_path = strdup((*env)->GetStringUTFChars(env, romPath, NULL));
+    free(rom_data); rom_data = NULL; rom_size = 0;
     struct retro_game_info info = {0};
     info.path = rom_path;
-    info.data = NULL;
-    info.size = 0;
+    if (core_need_fullpath) {
+        info.data = NULL;
+        info.size = 0;
+    } else {
+        /* need_fullpath=false:读 ROM 进内存交给核心(gambatte) */
+        FILE *f = fopen(rom_path, "rb");
+        if (!f) { LOGE("无法打开 ROM 文件: %s", rom_path); return JNI_FALSE; }
+        fseek(f, 0, SEEK_END);
+        long n = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        rom_data = malloc(n > 0 ? (size_t)n : 1);
+        if (fread(rom_data, 1, (size_t)n, f) != (size_t)n) {
+            fclose(f); free(rom_data); rom_data = NULL;
+            LOGE("ROM 读取失败: %s", rom_path);
+            return JNI_FALSE;
+        }
+        fclose(f);
+        rom_size = (size_t)n;
+        info.data = rom_data;
+        info.size = rom_size;
+    }
     jboolean ok = p_retro_load_game(&info) ? JNI_TRUE : JNI_FALSE;
     if (ok == JNI_TRUE) {
         struct retro_system_av_info av = {0};
@@ -310,6 +367,7 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeDeinit(JNIEnv *env, jobject t
     game_env = NULL;
     if (p_retro_deinit) p_retro_deinit();
     free(rom_path); rom_path = NULL;
+    free(rom_data); rom_data = NULL; rom_size = 0;
     if (core_lib) { dlclose(core_lib); core_lib = NULL; }
     if (cb_obj) { (*env)->DeleteGlobalRef(env, cb_obj); cb_obj = NULL; }
 }

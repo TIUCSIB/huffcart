@@ -52,6 +52,7 @@ import com.huffcart.app.netplay.NetplayManager
 import com.huffcart.app.netplay.PickedGameUi
 import com.huffcart.app.ui.AppTopBar
 import com.huffcart.app.ui.library.CoverImage
+import com.huffcart.app.ui.game.RomPlatform
 import com.huffcart.app.ui.library.RomLibrary
 import com.huffcart.app.ui.theme.HcRed
 import java.io.File
@@ -82,7 +83,10 @@ fun CreateRoomScreen(
     var search by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<File?>(null) }
     var gameInfo by remember { mutableStateOf<PickedGameUi?>(null) }
-    val allRoms = remember { RomLibrary.listRoms(context) }
+    // 联机游戏仅支持 FC(gb-gbc-platform):联机输入同步按 FC 席位协议设计
+    val allRoms = remember {
+        RomLibrary.listRoms(context).filter { RomPlatform.fromExtension(it.name) == RomPlatform.FC }
+    }
     val roms = remember(search) {
         if (search.isBlank()) {
             allRoms

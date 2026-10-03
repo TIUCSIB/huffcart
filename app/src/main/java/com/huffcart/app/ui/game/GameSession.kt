@@ -119,8 +119,13 @@ internal class GameSession(
     val savesDir = File(context.filesDir, SaveSlotStore.DIR_NAME).apply { mkdirs() }
     private val systemDir = File(context.filesDir, "system").apply { mkdirs() }
     private val romFile = romsDir.resolve(romName)
-    private val coreLib = File(context.applicationInfo.nativeLibraryDir, "libfceumm_libretro.so")
-    private val srmFile = savesDir.resolve(romName.removeSuffix(".nes") + ".srm")
+    // 平台→核心库表驱动(gb-gbc-platform 决策 2):FC→FCEUmm,GB/GBC→Gambatte
+    private val platform = RomPlatform.fromExtension(romName) ?: RomPlatform.FC
+    private val coreLib = File(
+        context.applicationInfo.nativeLibraryDir,
+        "lib${platform.coreLibName}_libretro.so",
+    )
+    private val srmFile = savesDir.resolve(SaveSlotStore.baseName(romName) + ".srm")
 
     /** 挂起档（turbo-and-auto-resume「断点续玩」）：独立于槽位（.stateN）与 SRAM 的退出快照。 */
     private val suspendFile = savesDir.resolve(SaveSlotStore.baseName(romName) + ".resume")
@@ -176,8 +181,9 @@ internal class GameSession(
 
     fun requestLoadState(slot: Int) { pendingCommand.set(LoadStateCmd(slot)) }
 
-    /** 金手指批应用（cheat-codes）：UI 传全部已启用码，游戏线程 reset+逐条 set。 */
+    /** 金手指批应用(cheat-codes):UI 传全部已启用码,游戏线程 reset+逐条 set;仅 FC(spec「GB 游戏无金手指入口」)。 */
     fun requestApplyCheats(codes: List<String>) {
+        if (platform != RomPlatform.FC) return
         cheatCodesToApply = codes
         pendingCommand.set(ApplyCheatsCmd)
     }
@@ -231,14 +237,14 @@ internal class GameSession(
     fun start() {
         check(!running) { "会话已在运行" }
         core.attach(coreLib.absolutePath, systemDir.absolutePath, savesDir.absolutePath)
-        // 金手指注入须在 loadRom 之前：fceumm 家族的 GG 替换读取钩子在游戏加载时构建，
-        // 加载后追加的码不生效（真机实测）。联机不注入（spec「联机不可用」）
-        if (netplay == null && initialCheats.isNotEmpty()) {
+        // 金手指注入(cheats spec「金手指入口」):仅 FC(Gambatte 作弊契约未验证,GB 不注入);
+        // 须在 loadRom 之前:fceumm 家族的 GG 替换读取钩子在游戏加载时构建,加载后追加的码不生效(真机实测)
+        if (netplay == null && platform == RomPlatform.FC && initialCheats.isNotEmpty()) {
             core.applyCheats(initialCheats)
         }
         when (core.loadRom(romFile.absolutePath)) {
             LoadResult.OK -> Unit
-            LoadResult.INVALID_ROM -> throw IllegalStateException("不是有效的 FC ROM")
+            LoadResult.INVALID_ROM -> throw IllegalStateException("不是有效的 ${platform.label} ROM")
             else -> throw IllegalStateException("游戏加载失败")
         }
         when (netplay?.role) {

@@ -89,6 +89,7 @@ import com.huffcart.app.ui.game.ControlScheme
 import com.huffcart.app.ui.game.ControlSchemeStore
 import com.huffcart.app.ui.game.KeyMappingStore
 import com.huffcart.app.ui.game.PadFeedback
+import com.huffcart.app.ui.game.RomPlatform
 import com.huffcart.app.ui.game.PadControlsOverlay
 import com.huffcart.app.ui.game.SaveSlotPanel
 import com.huffcart.app.ui.game.SaveSlotPanelMode
@@ -228,6 +229,8 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
     }
     // 键盘映射表(physical-gamepad 决策 1):手柄固定表先行、此表兜底的解析见 GamepadInput
     val keyboardMapping = remember { KeyMappingStore.load(context) }
+    // 会话平台(gb-gbc-platform):金手指入口仅 FC;联机期间由 netplayActive 另行隐藏
+    val gamePlatform = remember(romName) { RomPlatform.fromExtension(romName) ?: RomPlatform.FC }
     // 控制形态（virtual-joystick）：设置页仅在主界面可达，进入游戏屏读取一次即可
     val controlScheme = remember { ControlSchemeStore.load(context) }
     val handleButton: (RetroButton, Boolean) -> Unit = { button, pressed ->
@@ -379,6 +382,7 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                         onRewindHold = setRewindHeld,
                         turboOn = turboOn,
                         onToggleTurbo = toggleTurbo,
+                        cheatsAvailable = gamePlatform == RomPlatform.FC,
                         onOpenCheats = { cheatPanelOpen = true },
                         onExit = onExit,
                     )
@@ -427,6 +431,7 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
                         onRewindHold = setRewindHeld,
                         turboOn = turboOn,
                         onToggleTurbo = toggleTurbo,
+                        cheatsAvailable = gamePlatform == RomPlatform.FC,
                         onOpenCheats = { cheatPanelOpen = true },
                         onExit = onExit,
                         modifier = Modifier.align(Alignment.TopEnd),
@@ -455,6 +460,7 @@ private fun GameTopBar(
     onRewindHold: (Boolean) -> Unit,
     turboOn: Boolean,
     onToggleTurbo: () -> Unit,
+    cheatsAvailable: Boolean,
     onOpenCheats: () -> Unit,
     onExit: () -> Unit,
 ) {
@@ -500,6 +506,7 @@ private fun GameTopBar(
                     onRewindHold = onRewindHold,
                     turboOn = turboOn,
                     onToggleTurbo = onToggleTurbo,
+                    cheatsAvailable = cheatsAvailable,
                     onOpenCheats = onOpenCheats,
                     onExit = onExit,
                 )
@@ -521,6 +528,7 @@ private fun GameMenuItems(
     onRewindHold: (Boolean) -> Unit,
     turboOn: Boolean,
     onToggleTurbo: () -> Unit,
+    cheatsAvailable: Boolean,
     onOpenCheats: () -> Unit,
     onExit: () -> Unit,
 ) {
@@ -571,13 +579,15 @@ private fun GameMenuItems(
                 onToggleTurbo()
             },
         )
-        DropdownMenuItem(
-            text = { Text("金手指") },
-            onClick = {
-                onDismiss()
-                onOpenCheats()
-            },
-        )
+        if (cheatsAvailable) {
+            DropdownMenuItem(
+                text = { Text("金手指") },
+                onClick = {
+                    onDismiss()
+                    onOpenCheats()
+                },
+            )
+        }
     }
     DropdownMenuItem(
         text = { Text("退出游戏", color = HcRed) },
@@ -602,6 +612,7 @@ private fun GameFloatingMenu(
     onRewindHold: (Boolean) -> Unit,
     turboOn: Boolean,
     onToggleTurbo: () -> Unit,
+    cheatsAvailable: Boolean,
     onOpenCheats: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
@@ -638,6 +649,7 @@ private fun GameFloatingMenu(
                 onRewindHold = onRewindHold,
                 turboOn = turboOn,
                 onToggleTurbo = onToggleTurbo,
+                cheatsAvailable = cheatsAvailable,
                 onOpenCheats = onOpenCheats,
                 onExit = onExit,
             )
