@@ -3,6 +3,7 @@ package com.huffcart.app.ui.screens
 import android.content.Context
 import android.content.res.Configuration
 import android.util.Log
+import android.view.MotionEvent
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -81,6 +82,9 @@ import com.huffcart.app.ui.game.CheatEntry
 import com.huffcart.app.ui.game.CheatPanel
 import com.huffcart.app.ui.game.CheatStore
 import com.huffcart.app.ui.game.GameSession
+import com.huffcart.app.ui.game.AnalogStickState
+import com.huffcart.app.ui.game.GamepadAxisHub
+import com.huffcart.app.ui.game.GamepadInput
 import com.huffcart.app.ui.game.ControlScheme
 import com.huffcart.app.ui.game.ControlSchemeStore
 import com.huffcart.app.ui.game.KeyMappingStore
@@ -151,24 +155,45 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
     }
 
     DisposableEffect(romName) {
-        // 按压反馈开关（pad-feedback-and-display-settings）：进游戏屏读一次，
-        // 设置页仅主界面可达，改完重进即新值（manifest configChanges 旋转不重建）
+        // 按压反馈开关(pad-feedback-and-display-settings):进游戏屏读一次,
+        // 设置页仅主界面可达,改完重进即新值(manifest configChanges 旋转不重建)
         PadFeedback.init(context)
+        // 物理手柄(physical-gamepad 决策 2/3):轴事件经枢纽进入统一输入漏斗;
+        // 摇杆方向集与上次做差增量调用 onLocalButton,单机/联机分派与触屏完全同路
+        val stick = AnalogStickState()
+        var stickApplied: Set<RetroButton> = emptySet()
         session?.let { s ->
             s.onEvent = { msg -> feedback = msg }
             s.onFatal = { msg -> fatal = msg }
             runCatching { s.start() }.onFailure { fatal = it.message ?: it.toString() }
+            GamepadAxisHub.listener = { event ->
+                val dirs = stick.process(
+                    axisX = event.getAxisValue(MotionEvent.AXIS_X),
+                    axisY = event.getAxisValue(MotionEvent.AXIS_Y),
+                    hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X),
+                    hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y),
+                )
+                if (dirs != stickApplied) {
+                    GamepadInput.applyDirections(stickApplied, dirs, s::onLocalButton)
+                    stickApplied = dirs
+                }
+                true
+            }
         }
         NetplayManager.gameListener = { event ->
             when (event) {
                 is NetplayGameEvent.Message -> feedback = event.text
                 is NetplayGameEvent.Ended -> {
-                    if (!event.exitGame) netplayOver = true // 房主降级单机：撤联机横幅
+                    if (!event.exitGame) netplayOver = true // 房主降级单机:撤联机横幅
                     if (event.exitGame) forceExit = true
                 }
             }
         }
         onDispose {
+            // 先摘接收器再复位摇杆方向,避免复位期间新事件插入(physical-gamepad 任务 2.3)
+            GamepadAxisHub.listener = null
+            stickApplied.forEach { session?.onLocalButton(it, false) }
+            stick.reset()
             NetplayManager.gameListener = null
             NetplayManager.onGameScreenLeft()
             session?.stop()
@@ -201,9 +226,8 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
         view.viewTreeObserver.addOnWindowFocusChangeListener(listener)
         onDispose { view.viewTreeObserver.removeOnWindowFocusChangeListener(listener) }
     }
-    val keyCodeToButton = remember {
-        KeyMappingStore.load(context).entries.associate { (button, keyCode) -> keyCode to button }
-    }
+    // 键盘映射表(physical-gamepad 决策 1):手柄固定表先行、此表兜底的解析见 GamepadInput
+    val keyboardMapping = remember { KeyMappingStore.load(context) }
     // 控制形态（virtual-joystick）：设置页仅在主界面可达，进入游戏屏读取一次即可
     val controlScheme = remember { ControlSchemeStore.load(context) }
     val handleButton: (RetroButton, Boolean) -> Unit = { button, pressed ->
@@ -217,7 +241,7 @@ fun GameScreen(romName: String, onExit: () -> Unit) {
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
-                val button = keyCodeToButton[event.nativeKeyEvent.keyCode]
+                val button = GamepadInput.resolve(event.nativeKeyEvent.keyCode, keyboardMapping)
                 if (button == null) {
                     false
                 } else {
