@@ -49,8 +49,8 @@ import com.huffcart.app.ui.theme.HcRed
 
 /**
  * 联机大厅（netplay-lobby-v2「联机入口」）：局域网状态条、搜索过滤、附近房间
- * 卡片（封面/房间名/房主/人数÷容量）、「创建房间」进入建房页；手动房间码兜底
- * 保留。昵称不再提供编辑入口（固定取设备名）。顶层 tab 无返回箭头。
+ * 卡片（封面/房间名/房主/人数÷容量）、「创建房间」进入建房页。搜索框兼作房间码
+ * 输入（恰 3 位数字时出行动条），无独立表单；昵称固定取设备名。顶层 tab 无返回箭头。
  */
 @Composable
 fun NetplayScreen(
@@ -59,15 +59,10 @@ fun NetplayScreen(
 ) {
     val context = LocalContext.current
 
-    var manualCode by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
-    // 房间码解析提示：合法码展示将连接的地址；无效码给红色提示
-    val resolvedIp = if (manualCode.isBlank()) null else NetplayManager.resolveRoomCode(manualCode)
-    val resolveHint = when {
-        manualCode.isBlank() -> null
-        resolvedIp != null -> "将连接房主 $resolvedIp"
-        else -> "无法解析房间码：请输入房主房间屏上的 3 位数字，并确认已连接同一 Wi-Fi"
-    }
+    // 搜索框兼作房间码输入（netplay-lobby-v2 简化）：恰好 3 位数字 → 房间码模式
+    val roomCodeInput = search.trim().takeIf { it.length == 3 && it.all { c -> c.isDigit() } }
+    val resolvedIp = roomCodeInput?.let { NetplayManager.resolveRoomCode(it) }
     val wifiOk = NetplayManager.wifiAvailable
     val localIp = NetplayManager.localIp
     val joining = NetplayManager.joining
@@ -81,10 +76,10 @@ fun NetplayScreen(
     }
     LaunchedEffect(room) { if (room != null) onOpenRoom() }
 
-    // 搜索过滤：房间名 / 房主昵称 / 游戏名（不区分大小写包含）
-    val filteredRooms = remember(rooms, search) {
+    // 搜索过滤：房间名 / 房主昵称 / 游戏名（不区分大小写包含）；房间码模式下不滤
+    val filteredRooms = remember(rooms, search, roomCodeInput) {
         val kw = search.trim()
-        if (kw.isEmpty()) {
+        if (kw.isEmpty() || roomCodeInput != null) {
             rooms
         } else {
             rooms.filter {
@@ -185,23 +180,53 @@ fun NetplayScreen(
             OutlinedTextField(
                 value = search,
                 onValueChange = { search = it },
-                placeholder = { Text("搜索房间或游戏…") },
+                placeholder = { Text("搜索房间、游戏或 3 位房间码…") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            // ---- 房间码模式：搜索框恰为 3 位数字时给出行动条，取代独立输入区 ----
+            roomCodeInput?.let { code ->
+                val ok = resolvedIp != null
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (ok) HcRed.copy(alpha = 0.12f) else Color(0x14000000),
+                            RoundedCornerShape(12.dp),
+                        )
+                        .clickable(enabled = ok && !joining) {
+                            NetplayManager.saveNickname(context, confirmedNickname())
+                            NetplayManager.joinByCode(context, code, confirmedNickname())
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "房间码 $code",
+                        color = if (ok) HcRed else Color.Gray,
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        if (ok) "将连接房主 $resolvedIp，点击加入"
+                        else "无法解析：确认对方房间屏上的 3 位数字且本机已连同一 Wi-Fi",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (ok) Color(0xFF2E7D32) else HcRed,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
             when {
                 !wifiOk -> Text(
                     "连接 Wi-Fi 后自动搜索",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                 )
-                filteredRooms.isEmpty() -> Text(
-                    if (search.isBlank()) {
-                        "正在搜索附近房间…（搜不到时，请对方把房间屏上的 3 位房间码告诉你，在下方输入即可）"
-                    } else {
-                        "没有匹配「${search.trim()}」的房间"
-                    },
+                filteredRooms.isEmpty() && roomCodeInput == null -> Text(
+                    if (search.isBlank()) "正在搜索附近房间…（也可在上方输入 3 位房间码加入）"
+                    else "没有匹配「${search.trim()}」的房间",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                 )
@@ -220,35 +245,6 @@ fun NetplayScreen(
                 }
             }
 
-            // ---- 手动加入兜底 ----
-            Text("手动加入（搜不到房间时）", style = MaterialTheme.typography.titleMedium)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = manualCode,
-                    onValueChange = { manualCode = it.filter { c -> c.isDigit() }.take(3) },
-                    label = { Text("房间码") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                Button(
-                    onClick = {
-                        NetplayManager.saveNickname(context, confirmedNickname())
-                        NetplayManager.joinByCode(context, manualCode, confirmedNickname())
-                    },
-                    enabled = manualCode.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = HcRed),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "加入")
-                }
-            }
-            resolveHint?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (resolvedIp != null) Color.Gray else HcRed,
-                )
-            }
         }
     }
 }

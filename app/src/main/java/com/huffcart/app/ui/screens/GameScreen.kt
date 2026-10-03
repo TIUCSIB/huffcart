@@ -892,6 +892,11 @@ private class GameSession(
     fun start() {
         check(!running) { "会话已在运行" }
         core.attach(coreLib.absolutePath, systemDir.absolutePath, savesDir.absolutePath)
+        // 金手指注入须在 loadRom 之前：fceumm 家族的 GG 替换读取钩子在游戏加载时构建，
+        // 加载后追加的码不生效（真机实测）。联机不注入（spec「联机不可用」）
+        if (netplay == null && initialCheats.isNotEmpty()) {
+            core.applyCheats(initialCheats)
+        }
         when (core.loadRom(romFile.absolutePath)) {
             LoadResult.OK -> Unit
             LoadResult.INVALID_ROM -> throw IllegalStateException("不是有效的 FC ROM")
@@ -1009,12 +1014,6 @@ private class GameSession(
             }
         }
         var frameNo = 0
-        // 初始金手指注入（cheat-codes）：单机起跑即应用已启用的码；联机不注入（spec「联机不可用」）
-        if (np == null && initialCheats.isNotEmpty()) {
-            if (!core.applyCheats(initialCheats)) {
-                notifyEvent("核心不支持金手指")
-            }
-        }
         // 各席位最后应用的掩码（索引 = Seat.ordinal；房主侧 P2–P4 / 加入端全席位）
         val lastAppliedMasks = IntArray(4)
         // 连发驱动状态（游戏线程私有）：记录上次驱动到的 A/B 相位，关闭时还原用户真实状态
