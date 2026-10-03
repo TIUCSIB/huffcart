@@ -252,6 +252,14 @@ internal class GameSession(
 
         // fceumm 在变量解析前 av_info 报 0Hz，首帧后回落 48000 默认——直接对齐
         val rate = core.sampleRateInt().takeIf { it in 8000..96_000 } ?: 48_000
+        // 音频延迟（audio-latency-tuning 决策 3/5）：档位决定缓冲深度（阻塞写常满，深度即
+        // 端到端延迟）；字节数 = ms × 采样率 × 4（双声道 16bit），且永远 ≥ 设备最小缓冲。
+        // 加入端节拍来自网络输入到达、音频只能非阻塞写——小缓冲会把网络抖动变成持续爆音，
+        // 且其音频本就叠加网络延迟，故强制稳定档；房主/单机照常走用户档位。
+        val tier = when (netplay?.role) {
+            Seat.P2, Seat.P3, Seat.P4 -> AudioLatency.STABLE
+            else -> audio.latencyTier
+        }
         val minBuf = AudioTrack.getMinBufferSize(
             rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT,
         )
@@ -270,7 +278,15 @@ internal class GameSession(
                     .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                     .build(),
             )
-            .setBufferSizeInBytes(maxOf(minBuf, rate / 10 * 4)) // ≈100ms
+            // 仅低延迟档申请快速通路提示（决策 4）：sink 不支持时框架静默回退，无副作用
+            .setPerformanceMode(
+                if (tier == AudioLatency.LOW) {
+                    AudioTrack.PERFORMANCE_MODE_LOW_LATENCY
+                } else {
+                    AudioTrack.PERFORMANCE_MODE_NONE
+                },
+            )
+            .setBufferSizeInBytes(maxOf(minBuf, rate * tier.bufferMs / 1000 * 4))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         // 音量/静音（audio-settings-and-save-management 决策 1）：只改增益不停写——
@@ -630,7 +646,13 @@ internal class GameSession(
             framesSinceMark += factor
             val now = SystemClock.elapsedRealtime()
             if (now - lastMark >= 5000) {
-                Log.d("GameLoop", "emulation fps=${framesSinceMark * 1000 / (now - lastMark)}")
+                // underrun 计数（audio-latency-tuning 决策 8）：自 track 创建累计，
+                // 真机验收看相邻窗口是否持续增长——档位毫秒值微调的依据
+                Log.d(
+                    "GameLoop",
+                    "emulation fps=${framesSinceMark * 1000 / (now - lastMark)}" +
+                        " underrun=${audioTrack?.underrunCount ?: -1}",
+                )
                 framesSinceMark = 0
                 lastMark = now
             }

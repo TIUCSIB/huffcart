@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -28,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.huffcart.app.ui.AppTopBar
+import com.huffcart.app.ui.game.AudioLatency
 import com.huffcart.app.ui.game.AudioSettings
 import com.huffcart.app.ui.game.AudioSettingsStore
 import com.huffcart.app.ui.theme.HcChipBg
@@ -38,12 +41,13 @@ import com.huffcart.app.ui.theme.HcSurfaceLight
 /**
  * 声音设置页（audio-settings-and-save-management）：游戏音量滑条 + 静音 / 快进静音开关，
  * 任一调整即时持久化；游戏屏（GameSession 构造）读取一次生效。行样式对齐画面设置页；
- * 后续声音类设置在本页扩展。
+ * audio-latency-tuning 增补「音频延迟」三档选择（复用 FC 单选弹窗）。
  */
 @Composable
 fun AudioSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var settings by remember { mutableStateOf(AudioSettingsStore.load(context)) }
+    var latencyDialog by remember { mutableStateOf(false) }
 
     fun update(transform: (AudioSettings) -> AudioSettings) {
         settings = transform(settings)
@@ -80,6 +84,60 @@ fun AudioSettingsScreen(onBack: () -> Unit) {
                 onCheckedChange = { ffMuted -> update { it.copy(ffMuted = ffMuted) } },
             )
             HorizontalDivider(color = HcOutlineLight)
+            LatencyRow(
+                current = settings.latencyTier,
+                onClick = { latencyDialog = true },
+            )
+            HorizontalDivider(color = HcOutlineLight)
+        }
+    }
+    if (latencyDialog) {
+        FcOptionDialog(
+            title = "音频延迟",
+            options = AudioLatency.entries.map { it to it.label },
+            current = settings.latencyTier,
+            onSelect = { tier ->
+                update { it.copy(latencyTier = tier) }
+                latencyDialog = false
+            },
+            onDismiss = { latencyDialog = false },
+        )
+    }
+}
+
+/**
+ * 音频延迟行（audio-latency-tuning 决策 7）：左标签 + 取舍说明，右当前档位值芯片，
+ * 点按弹三档单选。文案如实标注「越跟手 ↔ 越稳健」的取舍（audio-latency-tuning 决策 2）。
+ */
+@Composable
+private fun LatencyRow(current: AudioLatency, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "音频延迟",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = "越小按键到出声越跟手；出现杂音请改选平衡或稳定",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Surface(shape = RoundedCornerShape(8.dp), color = HcChipBg) {
+            Text(
+                text = current.label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            )
         }
     }
 }

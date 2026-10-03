@@ -47,4 +47,22 @@ class AudioSettingsTest {
         assertEquals(settings.gain, settings.gainDuringFastForward(ffActive = true))
         assertTrue(settings.gain > 0f)
     }
+
+    /** audio-latency-tuning 任务 1.1：默认档位为平衡；三档缓冲毫秒值随档位递增。 */
+    @Test
+    fun latencyDefaultsToBalanced() {
+        assertEquals(AudioLatency.BALANCED, AudioSettings().latencyTier)
+        assertTrue(AudioLatency.LOW.bufferMs < AudioLatency.BALANCED.bufferMs)
+        assertTrue(AudioLatency.BALANCED.bufferMs < AudioLatency.STABLE.bufferMs)
+    }
+
+    /** audio-latency-tuning 任务 1.1：存储值解析——合法值透传，空/非法回落平衡（决策 6）。 */
+    @Test
+    fun latencyParsingFallsBackToBalanced() {
+        assertEquals(AudioLatency.LOW, AudioLatency.from("LOW"))
+        assertEquals(AudioLatency.STABLE, AudioLatency.from("STABLE"))
+        assertEquals(AudioLatency.BALANCED, AudioLatency.from(null))
+        assertEquals(AudioLatency.BALANCED, AudioLatency.from("junk"))
+        assertEquals(AudioLatency.BALANCED, AudioLatency.from("balanced"))
+    }
 }
