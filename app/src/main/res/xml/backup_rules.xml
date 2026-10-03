@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 云备份排除整个 file 域（API 26–30 经 android:fullBackupContent 生效）：
+     ROM/存档/封面不上云，25MB 配额不再构成风险；设置类偏好(sharedpref)保留备份。
+     spec「release-packaging - 云备份排除」。 -->
+<full-backup-content>
+    <exclude domain="file" path="/" />
+</full-backup-content>

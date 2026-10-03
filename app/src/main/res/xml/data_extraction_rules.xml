@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 数据提取规则（API 31+ 经 android:dataExtractionRules 生效）：
+     cloud-backup 排除整个 file 域（ROM/存档/封面不上云）；
+     device-transfer 仅保留 romsaves/（即时存档 + 缩略图 + SRAM 同在此目录），
+     ROM 本体不经迁移复制（spec「release-packaging - 云备份排除 / 设备迁移保留存档」）。 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="/" />
+    </cloud-backup>
+    <device-transfer>
+        <!-- include 即「仅备份所列路径」：ROM/封面/截图天然不在迁移范围 -->
+        <include domain="file" path="romsaves/" />
+    </device-transfer>
+</data-extraction-rules>

@@ -75,8 +75,13 @@ fun HomeScreen(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         when (val imported = RomLibrary.importRom(context, uri)) {
-            is RomLibrary.ImportResult.Ok -> state.refresh(context)
-            is RomLibrary.ImportResult.Invalid -> scope.launch { snackbar.showSnackbar("不是有效的 FC ROM") }
+            is RomLibrary.ImportResult.Ok -> {
+                state.refresh(context)
+                if (imported.imported > 1) {
+                    scope.launch { snackbar.showSnackbar("已导入 ${imported.imported} 个游戏") }
+                }
+            }
+            is RomLibrary.ImportResult.Invalid -> scope.launch { snackbar.showSnackbar(imported.message) }
             is RomLibrary.ImportResult.Error -> scope.launch { snackbar.showSnackbar("导入失败：${imported.reason}") }
         }
     }
@@ -117,7 +122,7 @@ fun HomeScreen(
                                 text = { Text("导入 ROM") },
                                 onClick = {
                                     menuOpen = false
-                                    picker.launch(arrayOf("application/octet-stream"))
+                                    picker.launch(RomLibrary.ROM_PICKER_MIME)
                                 },
                             )
                         }
@@ -134,7 +139,7 @@ fun HomeScreen(
             )
             when {
                 state.roms.isEmpty() -> EmptyLibrary(
-                    onImport = { picker.launch(arrayOf("application/octet-stream")) },
+                    onImport = { picker.launch(RomLibrary.ROM_PICKER_MIME) },
                     modifier = Modifier.fillMaxSize(),
                 )
                 state.filtered.isEmpty() -> Column(

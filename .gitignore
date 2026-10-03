@@ -13,3 +13,7 @@ app/src/main/jniLibs/
 
 # 内置联机 ROM（构建期由 scripts/sync-bundled-roms.sh 放入，本体不入库）
 app/src/main/assets/roms/
+
+# 发布签名凭据（zip-import-and-release-hygiene，design 决策 4）
+/keystore.properties
+*.jks
