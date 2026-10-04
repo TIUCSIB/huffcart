@@ -26,10 +26,10 @@
 
 ## 4. 干净构建与发布门槛
 
-- [ ] 4.1 确认 `assets/roms` 为空(不执行 `sync-bundled-roms.sh`)后执行 `scripts/build-core.sh` 与 `gradlew assembleRelease`。验证:release APK 产出且路径为 ASCII 映射盘约定
-- [ ] 4.2 APK 复核:解包确认无 .nes/.gb/.gbc;`apksigner verify` 签名有效。验证:两项检查输出留档于报告
+- [x] 4.1 确认 `assets/roms` 为空(不执行 `sync-bundled-roms.sh`)后执行 `scripts/build-core.sh` 与 `gradlew assembleRelease`。验证:release APK 产出且路径为 ASCII 映射盘约定
+- [x] 4.2 APK 复核:解包确认无 .nes/.gb/.gbc;`apksigner verify` 签名有效。验证:两项检查输出留档于报告
 - [ ] 4.3 发布门槛真机验证:用该 release APK 走导入/游玩/存读档/联机冒烟 + ≥30 分钟混合倒带/快进/存读档长测。验证:无崩溃/ANR/死机、内存无持续增长、无明显掉帧,数据写入报告;不达标则回到第 3 组
-- [ ] 4.4 发布前入库复核:`git ls-files` 清单无 ROM/凭据/local.properties;起草中文 changelog(按 git log 归纳)。验证:复核清单与 changelog 草稿完成
+- [x] 4.4 发布前入库复核:`git ls-files` 清单无 ROM/凭据/local.properties;起草中文 changelog(按 git log 归纳)。验证:复核清单与 changelog 草稿完成
 
 ## 5. GitHub 首发发布
 
@@ -39,8 +39,8 @@
 
 ## 6. README 美化与推送
 
-- [ ] 6.1 按 beautify-github-readme 技能产出 README 版式与项目原生 SVG 资产(横幅/徽章/特性版式),资产入库。验证:资产文件在仓库内、无外部图床引用
-- [ ] 6.2 撰写内容:项目定位、平台支持(FC/GB/GBC)、特性列表、本地构建步骤(含 `build-core.sh` ASCII 路径前提)、安装使用、免责声明(ROM 用户自备)。验证:特性逐项与实际一致,构建命令按文档可执行
+- [x] 6.1 按 beautify-github-readme 技能产出 README 版式与项目原生 SVG 资产(横幅/徽章/特性版式),资产入库。验证:资产文件在仓库内、无外部图床引用
+- [x] 6.2 撰写内容:项目定位、平台支持(FC/GB/GBC)、特性列表、本地构建步骤(含 `build-core.sh` ASCII 路径前提)、安装使用、免责声明(ROM 用户自备)。验证:特性逐项与实际一致,构建命令按文档可执行
 - [ ] 6.3 渲染复核(图像无死链)后提交推送。验证:GitHub 首页呈现横幅/徽章/版式且图片全部加载
 
 ## 7. 收尾复核与关机确认
