@@ -225,7 +225,7 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeLoadCore(JNIEnv *env, jobject
     }
 #define SYM(f) do { \
     *(void **)(&p_##f) = dlsym(core_lib, #f); \
-    if (!p_##f) { LOGE("缺少符号 " #f); return JNI_FALSE; } \
+    if (!p_##f) { LOGE("缺少符号 " #f); dlclose(core_lib); core_lib = NULL; return JNI_FALSE; } \
 } while (0)
     SYM(retro_init); SYM(retro_deinit); SYM(retro_api_version);
     SYM(retro_get_system_info); SYM(retro_get_system_av_info);
@@ -370,6 +370,10 @@ Java_com_huffcart_core_libretro_LibretroCore_nativeDeinit(JNIEnv *env, jobject t
     free(rom_data); rom_data = NULL; rom_size = 0;
     if (core_lib) { dlclose(core_lib); core_lib = NULL; }
     if (cb_obj) { (*env)->DeleteGlobalRef(env, cb_obj); cb_obj = NULL; }
+    if (video_buf) { (*env)->DeleteGlobalRef(env, video_buf); video_buf = NULL; }
+    video_cap = 0;
+    if (audio_buf) { (*env)->DeleteGlobalRef(env, audio_buf); audio_buf = NULL; }
+    audio_cap = 0;
 }
 
 JNIEXPORT jdoubleArray JNICALL

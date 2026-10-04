@@ -6,6 +6,7 @@ import com.huffcart.core.bridge.LoadResult
 import com.huffcart.core.bridge.RetroButton
 import com.huffcart.core.bridge.RetroCore
 import com.huffcart.core.bridge.VideoInfo
+import java.util.concurrent.atomic.AtomicIntegerArray
 
 /**
  * RetroCore 的 libretro 实装：经 JNI shim（libcorenative.so）驱动
@@ -25,7 +26,8 @@ class LibretroCore : RetroCore {
     }
 
     // 位掩码布局与 libretro 的 RETRO_DEVICE_ID_JOYPAD_* 对齐：bit = 1 << id
-    private val inputMasks = IntArray(4)
+    // 原子化：UI 线程写 / 游戏线程经 JNI 读（input_state_cb），跨线程无锁一致性
+    private val inputMasks = AtomicIntegerArray(4)
 
     // 逐帧复用缓冲；容量覆盖 FC 的 256×240 并留放大分辨率兜底
     private val videoBuffer = IntArray(512 * 512)
@@ -41,7 +43,7 @@ class LibretroCore : RetroCore {
     // internal 会被 Kotlin 改名混淆，JNI up-call 需要稳定名字，用 @JvmName 钉住
     @JvmName("getInputMaskFromNative")
     internal fun getInputMaskFromNative(player: Int): Int =
-        inputMasks.getOrNull(player) ?: 0
+        if (player in 0 until inputMasks.length()) inputMasks.get(player) else 0
 
     /** 装配：加载核心库 → 注册回调 → retro_init → 绑定逐帧缓冲。 */
     fun attach(coreLibPath: String, systemDir: String, saveDir: String) {
@@ -112,9 +114,10 @@ class LibretroCore : RetroCore {
             RetroButton.RIGHT -> 1 shl 7
             RetroButton.A -> 1 shl 8
         }
-        val p = if (player in inputMasks.indices) player else 0
-        inputMasks[p] =
-            if (pressed) inputMasks[p] or bit else inputMasks[p] and bit.inv()
+        val p = if (player in 0 until inputMasks.length()) player else 0
+        inputMasks.updateAndGet(p) { cur ->
+            if (pressed) cur or bit else cur and bit.inv()
+        }
     }
 
     override fun reset() {

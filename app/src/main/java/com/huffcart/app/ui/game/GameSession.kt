@@ -16,6 +16,7 @@ import com.huffcart.app.netplay.ButtonMask
 import com.huffcart.app.netplay.NetplayCodec
 import com.huffcart.app.netplay.NetplayGameEvent
 import com.huffcart.app.netplay.NetplayManager
+import com.huffcart.app.netplay.NetplayMessage
 import com.huffcart.app.netplay.Seat
 import com.huffcart.app.netplay.crc32OfVideo
 import com.huffcart.app.ui.library.CoverStore
@@ -236,6 +237,17 @@ internal class GameSession(
 
     fun start() {
         check(!running) { "会话已在运行" }
+        try {
+            startLocked()
+        } catch (t: Throwable) {
+            // attach 已完成的失败路径必须回收核心：否则 dlopen 引用、retro_init
+            // 内存与 JNI 全局引用随每次失败无界累积（审计 M1）
+            runCatching { core.deinit() }
+            throw t
+        }
+    }
+
+    private fun startLocked() {
         core.attach(coreLib.absolutePath, systemDir.absolutePath, savesDir.absolutePath)
         // 金手指注入(cheats spec「金手指入口」):仅 FC(Gambatte 作弊契约未验证,GB 不注入);
         // 须在 loadRom 之前:fceumm 家族的 GG 替换读取钩子在游戏加载时构建,加载后追加的码不生效(真机实测)
@@ -425,11 +437,18 @@ internal class GameSession(
                         }
                     }
                     else -> {
-                        // 加入端节拍：阻塞等主机第 N 帧输入；超时即断（读超时 3s）
-                        val input = NetplayManager.awaitJoinerInput(3_000)
+                        // 加入端节拍：等主机第 N 帧输入；3s 无帧判死（与读超时一致）。
+                        // 200ms 短轮询分片：退出时不必等满 3s 超时即可响应 running
+                        // （审计 ST1——原实现令主线程 stop() 的 join 最长卡 3s）
+                        var input: NetplayMessage.Input? = null
+                        var waitedMs = 0
+                        while (running && input == null && waitedMs < 3_000) {
+                            input = NetplayManager.awaitJoinerInput(200)
+                            if (input == null) waitedMs += 200
+                        }
                         if (input == null) {
-                            println("[StopSeq] joiner loop: input timeout, exiting")
                             netplayLive = false
+                            if (!running) break // 本端主动退出：不发"连接超时"提示
                             NetplayManager.postGameEvent(NetplayGameEvent.Message("连接超时，联机已断开"))
                             NetplayManager.postGameEvent(NetplayGameEvent.Ended(exitGame = true))
                             running = false
@@ -570,7 +589,8 @@ internal class GameSession(
                         appliedGain = desiredGain
                     }
                     val n = current.audioSamples.coerceIn(0, current.audio.size)
-                    val mode = if (netplayLive && np?.role == Seat.P2) {
+                    // 加入端（P2/P3/P4）统一非阻塞写：节拍来自主机输入流，写满只能丢
+                    val mode = if (netplayLive && np?.role != Seat.P1) {
                         AudioTrack.WRITE_NON_BLOCKING
                     } else {
                         AudioTrack.WRITE_BLOCKING
@@ -676,7 +696,6 @@ internal class GameSession(
     }
 
     fun stop() {
-        println("[StopSeq] stop entry: running=$running loopAlive=${loopThread?.isAlive}")
         if (!running && loopThread == null) return
         // 断点续玩：单机退出即请求挂起（先于 running=false，游戏线程 loop 顶部完成保存）
         if (netplay == null) suspendRequested = true
@@ -686,8 +705,14 @@ internal class GameSession(
         // 游戏线程彻底退出后才能释放核心——deinit 与 retro_run 并发会 native
         // 崩溃（真机复现：房主退出 → 加入端闪退）
         loopThread?.join(5_000)
-        println("[StopSeq] join done: loopAlive=${loopThread?.isAlive}")
+        val loopStillAlive = loopThread?.isAlive == true
         loopThread = null
+        if (loopStillAlive) {
+            // 各等待均有界，理论不可达；真发生则放弃本轮释放，
+            // 避免与未退出的游戏线程构成释放-使用竞态（审计 M9）
+            Log.e("GameSession", "game loop 未退出，跳过本轮资源释放")
+            return
+        }
         audioTrack?.let { track ->
             runCatching { track.stop() }
             track.release()
@@ -695,8 +720,6 @@ internal class GameSession(
         audioTrack = null
         // SRAM 快照落盘（设计决策 7：退出时导出，重进注入）
         core.getSram()?.let { bytes -> if (bytes.isNotEmpty()) srmFile.writeBytes(bytes) }
-        println("[StopSeq] before deinit")
         core.deinit()
-        println("[StopSeq] after deinit")
     }
 }
