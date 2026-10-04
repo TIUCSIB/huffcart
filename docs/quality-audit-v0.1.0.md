@@ -68,3 +68,10 @@ P0 = 0。真机长测(≥30 分钟门槛)在 release 干净构建后执行(见�
 ## 四、Backlog(P2 及以下,不阻塞发布)
 
 M7/M8 合并说明见登记表;S9(LAN UDP 校验)、S10(接纳握手重构)、P3(每帧 RectF)、P4(缩略图异步化)、M8(beacon socket 竞态)——连同后续想定:接入 CI、封面下载并发上限、netplay 协议认证。首发后按需立项。
+
+## 五、发布记录
+
+- **仓库**:https://github.com/TIUCSIB/huffcart(public,main @ a57912a,含全部加固提交与本报告)
+- **Release**:https://github.com/TIUCSIB/huffcart/releases/tag/v0.1.0,资产 `huffcart-v0.1.0.apk`
+- **抽检**:重新下载资产 SHA256 `a08495ab9de4a4719ffac4ae73684bd90acc2effa47f695706d247542970a234` 与本地 tag 构建一致;tag 树中 ROM/凭据文件命中为 0(仅两处文件名含 "roms" 的源码文件);README 与全部 SVG 资产在 v0.1.0 raw 均可访问(HTTP 200)
+- **关机**:用户在发布完成后明确取消,未执行

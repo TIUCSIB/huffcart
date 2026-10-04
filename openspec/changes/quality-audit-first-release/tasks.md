@@ -33,18 +33,18 @@
 
 ## 5. GitHub 首发发布
 
-- [ ] 5.1 `gh repo create TIUCSIB/huffcart --public` 并添加 remote、推送 main。验证:GitHub 上 main 与本地 HEAD 一致,历史无敏感文件
-- [ ] 5.2 打 tag `v0.1.0` 并推送,`gh release create v0.1.0` 附 changelog 与干净构建 APK。验证:Release 页可下载 APK,资产与 tag 构建一致
-- [ ] 5.3 发布后抽检:重新下载 APK 校验一致,Release 资产清单无 ROM 版。验证:抽检记录留档
+- [x] 5.1 `gh repo create TIUCSIB/huffcart --public` 并添加 remote、推送 main。验证:GitHub 上 main 与本地 HEAD 一致,历史无敏感文件
+- [x] 5.2 打 tag `v0.1.0` 并推送,`gh release create v0.1.0` 附 changelog 与干净构建 APK。验证:Release 页可下载 APK,资产与 tag 构建一致
+- [x] 5.3 发布后抽检:重新下载 APK 校验一致,Release 资产清单无 ROM 版。验证:抽检记录留档
 
 ## 6. README 美化与推送
 
 - [x] 6.1 按 beautify-github-readme 技能产出 README 版式与项目原生 SVG 资产(横幅/徽章/特性版式),资产入库。验证:资产文件在仓库内、无外部图床引用
 - [x] 6.2 撰写内容:项目定位、平台支持(FC/GB/GBC)、特性列表、本地构建步骤(含 `build-core.sh` ASCII 路径前提)、安装使用、免责声明(ROM 用户自备)。验证:特性逐项与实际一致,构建命令按文档可执行
-- [ ] 6.3 渲染复核(图像无死链)后提交推送。验证:GitHub 首页呈现横幅/徽章/版式且图片全部加载
+- [x] 6.3 渲染复核(图像无死链)后提交推送。验证:GitHub 首页呈现横幅/徽章/版式且图片全部加载
 
 ## 7. 收尾复核与关机确认
 
-- [ ] 7.1 审计报告终稿:五维结论齐全、问题全部闭环、backlog 明确,提交入库。验证:报告无"未检查"或悬置项
-- [ ] 7.2 汇总交付说明:审计结论摘要、修复清单、Release 链接、README 链接。验证:交付说明完整可读
-- [ ] 7.3 与用户确认后执行关机(`shutdown /s /t 60`,期间可 `shutdown /a` 取消);未经用户明确确认不得执行。验证:存在用户确认记录后再关机
+- [x] 7.1 审计报告终稿:五维结论齐全、问题全部闭环、backlog 明确,提交入库。验证:报告无"未检查"或悬置项
+- [x] 7.2 汇总交付说明:审计结论摘要、修复清单、Release 链接、README 链接。验证:交付说明完整可读
+- [x] 7.3 关机:用户在发布完成后明确表示"不需要关机了",按用户决定取消,未执行任何关机命令
