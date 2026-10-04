@@ -80,8 +80,10 @@ class NetplayLink(
                 assembler.feed(chunk, n, ready)
                 ready.forEach { messageHandler?.invoke(it) }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             val reason = if (closed.get()) "本端关闭" else "连接中断"
+            // 类型化留痕：协议错误/IO 异常归一为断线，但不再无声无息（审计 S6）
+            println("[NetplayLink] readLoop: ${e::class.simpleName}: ${e.message ?: ""} → $reason")
             finish(reason)
         }
     }
@@ -94,7 +96,8 @@ class NetplayLink(
                 output.write(bytes)
                 output.flush()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("[NetplayLink] writeLoop: ${e::class.simpleName}")
             if (!closed.get()) finish("发送失败，连接中断")
         }
     }
@@ -105,6 +108,9 @@ class NetplayLink(
             // 真机上经 System.out 进 logcat（tag System.out）
             println("[NetplayLink] finish: $reason")
             runCatching { socket.close() }
+            // 读侧 finish 也须投毒丸：写线程阻塞在 outbox.take()，只有 close()/finish()
+            // 投丸才能退出——否则每个未握手即断的连接永久泄漏一个写线程（审计 M2）
+            outbox.offer(ByteArray(0))
             disconnectHandler?.invoke(reason)
         }
     }

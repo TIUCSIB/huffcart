@@ -81,7 +81,8 @@ class HostSession(
                     return
                 }
                 if (joiner != null) return // 满员拒绝由上层在接纳前处理
-                joiner = PlayerInfo(joinerSeat, msg.nickname)
+                // 昵称截断（审计 S5）：上限 32 字符，防超长/不可见字符广播上 UI
+                joiner = PlayerInfo(joinerSeat, msg.nickname.trim().take(32))
                 endpoint.send(NetplayMessage.Welcome(hostNickname, joinerSeat, capacity))
                 onJoinerJoined?.invoke(joiner!!)
             }

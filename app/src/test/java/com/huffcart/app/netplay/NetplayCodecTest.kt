@@ -114,6 +114,23 @@ class NetplayCodecTest {
     }
 
     @Test
+    fun `超长昵称编码截断而不抛异常（审计 S5）`() {
+        val big = "超".repeat(100_000) // 300KB，远超编码上限
+        val decoded = decodeFrame(
+            NetplayCodec.encode(NetplayMessage.Hello(NETPLAY_PROTOCOL_VERSION, "0.1.0", big)),
+        ).single() as NetplayMessage.Hello
+        assertTrue(decoded.nickname.isNotEmpty() && decoded.nickname.length < big.length)
+    }
+
+    @Test
+    fun `超大 Start 快照按需分配并 round-trip（审计 M6）`() {
+        // 原 encodeBody 恒定 1MB：>1MB 快照直接 BufferOverflow，且每帧 Input 白扔 1MB
+        val state = ByteArray(2 * 1024 * 1024) { (it % 251).toByte() }
+        val decoded = decodeFrame(NetplayCodec.encode(NetplayMessage.Start(state))).single()
+        assertTrue(decoded is NetplayMessage.Start && decoded.state.contentEquals(state))
+    }
+
+    @Test
     fun `按钮掩码 diff 出按下与抬起`() {
         val b = ButtonMask.bit(com.huffcart.core.bridge.RetroButton.B)
         val a = ButtonMask.bit(com.huffcart.core.bridge.RetroButton.A)

@@ -23,7 +23,13 @@ class JoinSession(
     var onDesync: ((frame: Int) -> Unit)? = null
     var onDisconnected: ((reason: String) -> Unit)? = null
 
-    private val inputQueue = LinkedBlockingQueue<NetplayMessage.Input>()
+    // 有界输入队列（审计 S2/M7）：对端全速灌帧或速率持续失配时超上限即断线，
+    // 防无界积压 OOM；256 帧 ≈ 4s，正常对局远用不到
+    private val inputQueue = LinkedBlockingQueue<NetplayMessage.Input>(INPUT_QUEUE_CAP)
+
+    private companion object {
+        const val INPUT_QUEUE_CAP = 256
+    }
 
     @Volatile
     private var running = true
@@ -35,7 +41,6 @@ class JoinSession(
         endpoint.send(NetplayMessage.Hello(NETPLAY_PROTOCOL_VERSION, appVersion, nickname))
         endpoint.onMessage(::route)
         endpoint.onDisconnect { reason ->
-            println("[StopSeq] joiner: onDisconnect " + reason)
             running = false
             inputQueue.clear()
             onDisconnected?.invoke(reason)
@@ -82,7 +87,6 @@ class JoinSession(
             }
             is NetplayMessage.Start -> onStartReceived?.invoke(msg.state)
             is NetplayMessage.Leave -> {
-                println("[StopSeq] joiner: LEAVE received, clearing queue")
                 // 与断线路径同等处理：立即停掉输入流并清空积压帧——否则游戏循环
                 // 会继续消耗房主退出前缓冲的输入帧，与 stop() 的核心释放竞态
                 // （game 线程还在 retro_run 时 deinit → native 崩溃，真机已复现）
@@ -98,7 +102,15 @@ class JoinSession(
                 }
                 expectedFrame = msg.frame + 1
                 consumed = msg
-                inputQueue.offer(msg)
+                if (!inputQueue.offer(msg)) {
+                    // 队列满 = 对端灌帧或本端严重落后：继续收只会积压，按断线处理（审计 S2）
+                    println("[JoinSession] 输入队列溢出，断开连接")
+                    running = false
+                    inputQueue.clear()
+                    endpoint.close()
+                    onDisconnected?.invoke("输入流异常，连接已断开")
+                    return
+                }
             }
             is NetplayMessage.Ping -> endpoint.send(NetplayMessage.Pong)
             else -> Unit

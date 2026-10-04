@@ -510,7 +510,6 @@ object NetplayManager {
     // ---- 房主端：多席位接纳与维护（主线程） ----
 
     private fun onIncoming(link: NetplayLink) {
-        println("[NetplayManager] incoming connection")
         mainHandler.post {
             val r = room
             val seat = Seat.entries.firstOrNull { s ->
@@ -666,8 +665,11 @@ object NetplayManager {
     }
 
     private fun lookupRom(context: Context, romName: String): RomFileInfo? {
-        val file = File(context.filesDir, "roms").resolve(romName)
-        if (!file.isFile) return null
+        // 路径收口（审计 S1）：romName 来自网络对端，规范化后必须仍是 roms 目录的
+        // 直接子文件，阻断 ../ 与绝对路径对任意文件的 size+CRC32 探测
+        val romsDir = File(context.filesDir, "roms").canonicalFile
+        val file = runCatching { romsDir.resolve(romName).canonicalFile }.getOrNull() ?: return null
+        if (file.parentFile != romsDir || !file.isFile) return null
         return RomFileInfo(file.length(), crc32Of(file))
     }
 

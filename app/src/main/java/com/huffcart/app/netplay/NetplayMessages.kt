@@ -113,7 +113,14 @@ object NetplayCodec {
     }
 
     private fun encodeBody(msg: NetplayMessage): ByteBuffer {
-        val buf = ByteBuffer.allocate(1024 * 1024)
+        // 按消息类型定容（审计 M6）：原先每条消息（含每帧 Input）固定分配 1MB，
+        // 60fps 对局 ≈ 60MB/s 瞬时垃圾；Start 快照按实际大小分配，超 8MB 帧上界
+        // 由 FrameAssembler 侧语义兜底拒绝
+        val buf = when (msg) {
+            is NetplayMessage.Start -> ByteBuffer.allocate(msg.state.size + 16)
+            is NetplayMessage.Input -> ByteBuffer.allocate(32)
+            else -> ByteBuffer.allocate(1024)
+        }
         when (msg) {
             is NetplayMessage.Hello -> {
                 buf.put(TYPE_HELLO).putShort(msg.protocolVersion.toShort())
@@ -243,9 +250,13 @@ object NetplayCodec {
     private const val TYPE_PING: Byte = 12
     private const val TYPE_PONG: Byte = 13
 
+    /** 字符串编码上限（审计 S5）：昵称/文件名/文案的合理上界，远小于线上 u16 长度上限，
+     *  超长截断而非抛异常——编码侧崩溃的是本地进程；解码端按长度前缀读取，完全兼容。 */
+    private const val MAX_STRING_BYTES = 128
+
     private fun putString(buf: ByteBuffer, s: String) {
-        val bytes = s.encodeToByteArray()
-        check(bytes.size <= Char.MAX_VALUE.code) { "字符串超长" }
+        var bytes = s.encodeToByteArray()
+        if (bytes.size > MAX_STRING_BYTES) bytes = bytes.copyOf(MAX_STRING_BYTES)
         buf.putShort(bytes.size.toShort()).put(bytes)
     }
 
