@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.huffcart.app.ui.AppTopBar
 import com.huffcart.app.ui.game.SaveSlotStore
+import com.huffcart.app.ui.game.formatSlotTime
 import com.huffcart.app.ui.game.SlotMeta
 import com.huffcart.app.ui.game.SlotThumbnails
 import com.huffcart.app.ui.library.CoverImage
@@ -55,9 +56,6 @@ import com.huffcart.app.ui.theme.HcOutlineLight
 import com.huffcart.app.ui.theme.HcPanelDark
 import com.huffcart.app.ui.theme.HcRed
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * 存档管理页（audio-settings-and-save-management「存档槽位管理」）：按游戏管理存档槽。
@@ -291,6 +289,3 @@ private fun SlotManagementRow(
         }
     }
 }
-
-private fun formatSlotTime(savedAt: Long): String =
-    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(savedAt))

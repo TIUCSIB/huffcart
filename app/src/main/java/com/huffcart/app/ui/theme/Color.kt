@@ -15,16 +15,12 @@ val HcOutlineLight = Color(0xFFDCD2C2)
 val HcChipBg = Color(0xFFEFE6D6)
 
 // 游戏屏专属深色（画面区黑底与控制面板，浅色主题的豁免区；色值取素材手柄实测）
+// 审计 R2：删除 6 个零引用常量（HcPanelRecess/HcDpadArm/HcPadRedBright/HcPillBg/HcPillBorder/HcBrick），
+// 手柄面板实际使用 PadControls 私有色板
 val HcGameBlack = Color(0xFF000000)
 val HcPanelDark = Color(0xFF1F1F1F) // 控制面板
-val HcPanelRecess = Color(0xFF161616) // 十字键凹槽圆
-val HcDpadArm = Color(0xFF373737) // 十字键臂
 val HcPadRed = Color(0xFFF22C2E) // A/B 红
 val HcPadRedDeep = Color(0xFFC21E20) // A/B 立体底影
-val HcPadRedBright = Color(0xFFFF6B6B) // A/B 按下高亮
-val HcPillBg = Color(0xFF383838) // SELECT/START 胶囊
-val HcPillBorder = Color(0xFF555455)
-val HcBrick = Color(0xFFC40010) // 启动页砖块
 val HcBannerTag = Color(0xFF6E1414) // 游戏屏横幅标签底
 
 // 分类页品类色（game-library「分类页」：彩色卡片）

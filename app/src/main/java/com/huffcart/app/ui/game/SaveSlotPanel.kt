@@ -36,9 +36,6 @@ import com.huffcart.app.ui.theme.HcPanelDark
 import com.huffcart.app.ui.theme.HcRed
 import com.huffcart.app.ui.theme.HcSurfaceLight
 import com.huffcart.app.ui.theme.PixelFontFamily
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * 存档槽面板（audio-settings-and-save-management 决策 4）：快捷菜单「存档 / 读档」点开后弹出，
@@ -131,7 +128,7 @@ private fun SlotRow(
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (meta != null) formatTime(meta.savedAt) else "空",
+                text = if (meta != null) formatSlotTime(meta.savedAt) else "空",
                 style = MaterialTheme.typography.labelMedium,
                 color = if (enabled) HcOnLight else HcOnLightVariant,
             )
@@ -177,6 +174,3 @@ private fun SlotThumb(thumbnail: android.graphics.Bitmap?, occupied: Boolean) {
         }
     }
 }
-
-private fun formatTime(savedAt: Long): String =
-    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(savedAt))

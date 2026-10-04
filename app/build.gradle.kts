@@ -50,6 +50,8 @@ android {
             signingConfig = if (keystorePropsFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
+                // 审计 S8：回退必须显性留痕，防止忘配凭据时误发 debug 签名包
+                logger.warn("release 签名回退：未找到 keystore.properties，使用 debug 密钥（勿用于正式分发）")
                 signingConfigs.getByName("debug")
             }
         }

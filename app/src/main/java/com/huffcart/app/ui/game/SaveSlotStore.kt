@@ -62,3 +62,8 @@ object SaveSlotStore {
             ?.sorted()
             .orEmpty()
 }
+
+/** 槽位保存时间的统一展示格式（审计 R4：存读档面板与存档管理页共用，原为两处逐字重复）。 */
+internal fun formatSlotTime(savedAt: Long): String =
+    java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+        .format(java.util.Date(savedAt))
