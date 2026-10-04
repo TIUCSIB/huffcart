@@ -53,6 +53,7 @@ import com.huffcart.app.ui.library.RomLibrary
 import com.huffcart.app.ui.theme.HcOutlineLight
 import com.huffcart.app.ui.theme.HcRed
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -75,15 +76,19 @@ fun HomeScreen(
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        when (val imported = RomLibrary.importRom(context, uri)) {
-            is RomLibrary.ImportResult.Ok -> {
-                state.refresh(context)
-                if (imported.imported > 1) {
-                    scope.launch { snackbar.showSnackbar("已导入 ${imported.imported} 个游戏") }
+        // 解压与头部判定移出主线程（审计 S4）：zip 导入可秒级甚至更久，主线程执行会卡 UI 乃至 ANR
+        scope.launch(Dispatchers.IO) {
+            val imported = RomLibrary.importRom(context, uri)
+            when (imported) {
+                is RomLibrary.ImportResult.Ok -> {
+                    state.refresh(context)
+                    if (imported.imported > 1) {
+                        snackbar.showSnackbar("已导入 ${imported.imported} 个游戏")
+                    }
                 }
+                is RomLibrary.ImportResult.Invalid -> snackbar.showSnackbar(imported.message)
+                is RomLibrary.ImportResult.Error -> snackbar.showSnackbar("导入失败：${imported.reason}")
             }
-            is RomLibrary.ImportResult.Invalid -> scope.launch { snackbar.showSnackbar(imported.message) }
-            is RomLibrary.ImportResult.Error -> scope.launch { snackbar.showSnackbar("导入失败：${imported.reason}") }
         }
     }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->

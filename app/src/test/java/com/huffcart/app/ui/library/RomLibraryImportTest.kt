@@ -146,4 +146,15 @@ class RomLibraryImportTest {
         assertIs<RomLibrary.ImportResult.Ok>(result)
         assertEquals(listOf("无后缀的卡带.nes"), nesFiles(dir))
     }
+
+    @Test
+    /** 审计 S3：条目数封顶，海量条目整体终止并回滚。 */
+    fun tooManyEntriesAbortsWithError() {
+        val dir = tempDir()
+        // 600 个合法条目超过 512 上限：整体终止（回滚），防海量条目拖垮导入
+        val entries = Array(600) { "f$it.txt" to ByteArray(4) }
+        val result = import(dir, "many.zip", zipBytes(*entries))
+        assertIs<RomLibrary.ImportResult.Error>(result)
+        assertTrue(nesFiles(dir).isEmpty())
+    }
 }

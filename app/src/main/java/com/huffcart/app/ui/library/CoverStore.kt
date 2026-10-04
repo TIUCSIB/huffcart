@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -39,6 +40,9 @@ object CoverStore {
 
     /** 预抓取并发上限：图源限速，过高只会互相挤占带宽。 */
     private const val PREFETCH_CONCURRENCY = 6
+
+    /** 单次下载上限（审计 S7）:索引页数 MB、图片百 KB 级，16MB 已远超合理值。 */
+    private const val MAX_DOWNLOAD_BYTES = 16L * 1024 * 1024
 
     /** 会话级抓取作用域：调用方退出组合不打断落盘中的抓取，落盘后其他调用方复查即得。 */
     private val fetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -93,13 +97,16 @@ object CoverStore {
 
     /** 确保该游戏有封面落盘；返回落盘后封面文件是否存在。已存在（导入或既往抓取）直接 true。 */
     suspend fun ensureCover(context: Context, gameName: String): Boolean {
-        val file = coverFile(context, gameName)
+        // 入口即转 applicationContext（审计 M3）：抓取协程存活可达分钟级，
+        // 捕获 Activity 会把它钉在缓存进程里
+        val appContext = context.applicationContext
+        val file = coverFile(appContext, gameName)
         if (file.exists()) return true
         val key = GenreCatalog.normalize(gameName)
         if (key.isEmpty()) return false
         val job = synchronized(inFlight) {
             inFlight[key] ?: run {
-                val created = fetchScope.launch { fetchCover(context, key) }
+                val created = fetchScope.launch { fetchCover(appContext, key) }
                 inFlight[key] = created
                 created.invokeOnCompletion { synchronized(inFlight) { inFlight.remove(key, created) } }
                 created
@@ -171,13 +178,15 @@ object CoverStore {
      * 图片体积 100-500KB 且图源限速，全部完成需数十分钟；期间界面即时回退占位图不受影响。
      */
     fun prefetchAll(context: Context, gameNames: List<String>) {
+        // 入口即转 applicationContext（审计 M3，理由同 ensureCover）
+        val appContext = context.applicationContext
         fetchScope.launch {
             val semaphore = Semaphore(PREFETCH_CONCURRENCY)
             coroutineScope {
                 gameNames.forEach { name ->
                     launch {
                         semaphore.withPermit {
-                            runCatching { ensureCover(context, name) }
+                            runCatching { ensureCover(appContext, name) }
                         }
                     }
                 }
@@ -228,7 +237,7 @@ object CoverStore {
         val conn = connect(url, INDEX_READ_TIMEOUT_MS)
         try {
             if (conn.responseCode != HttpURLConnection.HTTP_OK) return@runCatching null
-            conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+            conn.inputStream.use { it.readBounded(MAX_DOWNLOAD_BYTES).toString(Charsets.UTF_8) }
         } finally {
             conn.disconnect()
         }
@@ -251,7 +260,7 @@ object CoverStore {
                 val tmp = File(target.parentFile, target.name + ".part")
                 tmp.outputStream().use { output ->
                     output.write(head)
-                    input.copyTo(output)
+                    copyBounded(input, output, MAX_DOWNLOAD_BYTES)
                 }
                 if (tmp.length() > head.size) tmp.renameTo(target) else tmp.delete()
             }
@@ -268,5 +277,32 @@ object CoverStore {
             read += n
         }
         return read
+    }
+
+    /** 读至多 limit 字节，超限抛 IOException（调用方 runCatching 归一为失败，审计 S7）。 */
+    private fun InputStream.readBounded(limit: Long): ByteArray {
+        val out = ByteArrayOutputStream(minOf(limit, 1024L * 1024).toInt())
+        val chunk = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val n = read(chunk)
+            if (n < 0) return out.toByteArray()
+            total += n
+            if (total > limit) throw java.io.IOException("下载超过 ${limit / (1024 * 1024)}MB 上限")
+            out.write(chunk, 0, n)
+        }
+    }
+
+    /** 有界拷贝，超限抛 IOException（审计 S7）。 */
+    private fun copyBounded(input: InputStream, output: java.io.OutputStream, limit: Long) {
+        val chunk = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val n = input.read(chunk)
+            if (n < 0) return
+            total += n
+            if (total > limit) throw java.io.IOException("下载超过 ${limit / (1024 * 1024)}MB 上限")
+            output.write(chunk, 0, n)
+        }
     }
 }

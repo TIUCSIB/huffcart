@@ -7,6 +7,7 @@ import com.huffcart.app.ui.game.RomPlatform
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 
@@ -25,6 +26,10 @@ object RomLibrary {
 
     /** 单条目解压上限:GB 最大 8MB(FCEUmm 约 1MB),超限视为异常条目跳过(zip 炸弹防御)。 */
     private const val MAX_ENTRY_BYTES = 8L * 1024 * 1024
+
+    /** zip 导入总上限（审计 S3）:条目数与解压总量双重封顶，防炸弹填盘。 */
+    private const val MAX_ZIP_ENTRIES = 512
+    private const val MAX_ZIP_TOTAL_BYTES = 512L * 1024 * 1024
 
     /** 头部判定所需前缀长度(GB logo 至 $134 + $143/$148 元数据)。 */
     private const val HEADER_PREFIX_BYTES = 0x150
@@ -117,13 +122,21 @@ object RomLibrary {
         try {
             ZipInputStream(BufferedInputStream(input)).use { zip ->
                 val seen = HashSet<String>()
+                var entries = 0
+                var totalBytes = 0L
                 while (true) {
                     val entry = zip.nextEntry ?: break
+                    // 条目数封顶（审计 S3）：海量小条目亦可拖垮导入
+                    if (++entries > MAX_ZIP_ENTRIES) throw IOException("压缩包条目数超限")
                     if (!entry.isDirectory && entry.name.substringAfterLast('.').lowercase() in ROM_EXTENSIONS) {
                         val bytes = readBounded(zip)
                         val base = sanitize(entry.name.substringAfterLast('/').substringAfterLast('\\'))
                         val platform = bytes?.let { RomPlatform.headerPlatform(it) }
                         if (platform != null && base.isNotEmpty() && seen.add(base)) {
+                            // 解压总量封顶（审计 S3）：超限条目按 spec 既有语义跳过，
+                            // 但入库总量必须有界，防"多合法条目累计填盘"
+                            totalBytes += bytes.size
+                            if (totalBytes > MAX_ZIP_TOTAL_BYTES) throw IOException("解压总量超限")
                             val target = romsDir.resolve(normalizeExtension(base, platform))
                             target.outputStream().use { it.write(bytes) }
                             written += target
