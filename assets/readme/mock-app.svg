@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" role="img" aria-label="界面示意：左侧为游戏库封面墙，右侧为横屏游戏画面与触控手柄（均为像素风格示意图，非真实游戏画面）">
+  <title>界面示意：游戏库封面墙与横屏游戏画面（原创像素示意画）</title>
+  <rect width="1200" height="700" fill="#F6F1E7"/>
+
+  <!-- ============ 手机 1：游戏库（竖屏） ============ -->
+  <g>
+    <rect x="120" y="30" width="330" height="620" rx="28" fill="#1F1F1F"/>
+    <rect x="132" y="42" width="306" height="596" rx="18" fill="#FFFFFF"/>
+
+    <!-- 顶栏 -->
+    <path d="M132 60 a18 18 0 0 1 18 -18 h270 a18 18 0 0 1 18 18 v40 h-306 z" fill="#E60012"/>
+    <text x="150" y="88" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="24" font-weight="900" fill="#FFFFFF">吹卡带</text>
+    <rect x="216" y="66" width="34" height="20" rx="4" fill="none" stroke="#FFFFFF" stroke-width="2"/>
+    <text x="223" y="81" font-family="'Courier New',monospace" font-size="13" font-weight="bold" fill="#FFFFFF">FC</text>
+    <circle cx="392" cy="76" r="10" fill="none" stroke="#FFFFFF" stroke-width="2.5"/>
+    <line x1="399" y1="83" x2="406" y2="90" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+    <circle cx="420" cy="70" r="2.5" fill="#FFFFFF"/><circle cx="420" cy="78" r="2.5" fill="#FFFFFF"/><circle cx="420" cy="86" r="2.5" fill="#FFFFFF"/>
+
+    <!-- 分类 chips -->
+    <rect x="146" y="112" width="60" height="28" rx="14" fill="#E60012"/>
+    <text x="176" y="131" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">全部</text>
+    <g font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="14" fill="#33291F">
+      <rect x="214" y="112" width="60" height="28" rx="14" fill="#EFE6D6"/><text x="244" y="131" text-anchor="middle">动作</text>
+      <rect x="282" y="112" width="60" height="28" rx="14" fill="#EFE6D6"/><text x="312" y="131" text-anchor="middle">射击</text>
+      <rect x="350" y="112" width="60" height="28" rx="14" fill="#EFE6D6"/><text x="380" y="131" text-anchor="middle">益智</text>
+    </g>
+
+    <!-- 封面 2×2（原创像素示意画） -->
+    <!-- 封面 A：山与云 -->
+    <g>
+      <rect x="146" y="156" width="134" height="120" rx="10" fill="#8ED0F0"/>
+      <rect x="146" y="238" width="134" height="38" fill="#5FA845"/>
+      <path d="M160 238 L196 186 L232 238 Z" fill="#4B7A3A"/>
+      <path d="M204 238 L240 196 L276 238 Z" fill="#3D6330"/>
+      <rect x="180" y="166" width="22" height="10" rx="5" fill="#FFFFFF"/>
+      <rect x="210" y="158" width="16" height="8" rx="4" fill="#FFFFFF"/>
+      <text x="213" y="296" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="15" font-weight="700" fill="#33291F">像素冒险</text>
+      <text x="213" y="316" text-anchor="middle" font-family="'Courier New',monospace" font-size="12" fill="#8A7E6E">FC</text>
+    </g>
+    <!-- 封面 B：星空射击 -->
+    <g>
+      <rect x="292" y="156" width="134" height="120" rx="10" fill="#101538"/>
+      <g fill="#FFFFFF"><rect x="308" y="172" width="4" height="4"/><rect x="352" y="188" width="4" height="4"/><rect x="398" y="170" width="4" height="4"/><rect x="330" y="220" width="4" height="4"/><rect x="396" y="236" width="4" height="4"/><rect x="368" y="248" width="4" height="4"/></g>
+      <path d="M359 214 L381 236 L359 258 L337 236 Z" fill="#F7B500"/>
+      <rect x="355" y="230" width="8" height="12" fill="#E60012"/>
+      <rect x="357" y="196" width="4" height="14" fill="#FF6B6B"/>
+      <text x="359" y="296" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="15" font-weight="700" fill="#33291F">星空射手</text>
+      <text x="359" y="316" text-anchor="middle" font-family="'Courier New',monospace" font-size="12" fill="#8A7E6E">FC</text>
+    </g>
+    <!-- 封面 C：迷宫 -->
+    <g>
+      <rect x="146" y="330" width="134" height="120" rx="10" fill="#123B23"/>
+      <g fill="#2E7D46">
+        <rect x="160" y="344" width="106" height="10"/><rect x="160" y="344" width="10" height="92"/>
+        <rect x="160" y="426" width="106" height="10"/><rect x="256" y="344" width="10" height="92"/>
+        <rect x="184" y="368" width="58" height="10"/><rect x="228" y="368" width="10" height="44"/>
+        <rect x="184" y="392" width="10" height="34"/>
+      </g>
+      <rect x="196" y="404" width="14" height="14" fill="#F7B500"/>
+      <text x="213" y="470" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="15" font-weight="700" fill="#33291F">迷宫探秘</text>
+      <text x="213" y="490" text-anchor="middle" font-family="'Courier New',monospace" font-size="12" fill="#8A7E6E">GB</text>
+    </g>
+    <!-- 封面 D：赛车 -->
+    <g>
+      <rect x="292" y="330" width="134" height="120" rx="10" fill="#444B55"/>
+      <g stroke="#F6F1E7" stroke-width="6" stroke-dasharray="14 12"><line x1="359" y1="336" x2="359" y2="444"/></g>
+      <rect x="322" y="396" width="30" height="18" rx="4" fill="#E60012"/>
+      <rect x="330" y="390" width="14" height="8" rx="2" fill="#B50010"/>
+      <rect x="380" y="356" width="24" height="16" rx="3" fill="#F7B500" transform="rotate(-8 392 364)"/>
+      <text x="359" y="470" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="15" font-weight="700" fill="#33291F">赛车传奇</text>
+      <text x="359" y="490" text-anchor="middle" font-family="'Courier New',monospace" font-size="12" fill="#8A7E6E">FC</text>
+    </g>
+
+    <!-- 底部导航 -->
+    <path d="M132 600 v20 a18 18 0 0 0 18 18 h270 a18 18 0 0 0 18 -18 v-20 z" fill="#FFFFFF"/>
+    <line x1="132" y1="600" x2="438" y2="600" stroke="#DCD2C2" stroke-width="2"/>
+    <g font-family="'PingFang SC',sans-serif" font-size="13" transform="translate(0,-16)">
+      <path d="M180 620 l10 -10 l10 10 v12 h-20 z" fill="#E60012"/><text x="190" y="650" text-anchor="middle" fill="#E60012" font-weight="700">首页</text>
+      <circle cx="285" cy="624" r="8" fill="none" stroke="#8A7E6E" stroke-width="2.5"/><circle cx="285" cy="624" r="3" fill="#8A7E6E"/><text x="285" y="650" text-anchor="middle" fill="#8A7E6E">联机</text>
+      <circle cx="380" cy="622" r="7" fill="none" stroke="#8A7E6E" stroke-width="2.5"/><path d="M370 640 a10 7 0 0 1 20 0" fill="none" stroke="#8A7E6E" stroke-width="2.5"/><text x="380" y="650" text-anchor="middle" fill="#8A7E6E">我的</text>
+    </g>
+    <text x="285" y="678" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="14" fill="#8A7E6E">游戏库（界面示意）</text>
+  </g>
+
+  <!-- ============ 手机 2：游戏画面（横屏） ============ -->
+  <g>
+    <rect x="560" y="120" width="560" height="440" rx="28" fill="#1F1F1F"/>
+    <rect x="574" y="134" width="532" height="412" rx="16" fill="#000000"/>
+
+    <!-- 画面区：像素山谷场景（示意） -->
+    <g>
+      <rect x="574" y="134" width="532" height="412" fill="#101538"/>
+      <g fill="#FFFFFF"><rect x="620" y="180" width="4" height="4"/><rect x="760" y="160" width="4" height="4"/><rect x="900" y="190" width="4" height="4"/><rect x="1020" y="170" width="4" height="4"/><rect x="700" y="230" width="4" height="4"/><rect x="960" y="250" width="4" height="4"/></g>
+      <circle cx="1000" cy="220" r="34" fill="#F7B500"/>
+      <rect x="574" y="380" width="532" height="80" fill="#2E7D46"/>
+      <rect x="574" y="374" width="532" height="6" fill="#3D6330"/>
+      <g fill="#4B7A3A"><rect x="640" y="398" width="26" height="18"/><rect x="700" y="406" width="20" height="14"/><rect x="980" y="400" width="24" height="16"/></g>
+      <!-- 像素小主角 -->
+      <g transform="translate(820,330)">
+        <rect x="0" y="0" width="28" height="28" fill="#F6F1E7"/>
+        <rect x="4" y="8" width="6" height="6" fill="#33291F"/><rect x="18" y="8" width="6" height="6" fill="#33291F"/>
+        <rect x="6" y="20" width="16" height="4" fill="#C21E20"/>
+        <rect x="4" y="28" width="8" height="12" fill="#33291F"/><rect x="16" y="28" width="8" height="12" fill="#33291F"/>
+      </g>
+      <!-- 弹跳像素（示意动效帧） -->
+      <rect x="872" y="300" width="10" height="10" fill="#F7B500"/>
+    </g>
+
+    <!-- 右上角半透明菜单浮钮 -->
+    <circle cx="1058" cy="176" r="22" fill="#000000" opacity="0.5"/>
+    <circle cx="1058" cy="176" r="9" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+    <circle cx="1058" cy="176" r="2.5" fill="#FFFFFF"/>
+    <line x1="1058" y1="163" x2="1058" y2="167" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+    <line x1="1058" y1="185" x2="1058" y2="189" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+    <line x1="1045" y1="176" x2="1049" y2="176" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+    <line x1="1067" y1="176" x2="1071" y2="176" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- 浮层触控手柄 -->
+    <g transform="translate(640,420)" fill="#2A2A2A" opacity="0.9">
+      <rect x="30" y="0" width="34" height="104" rx="5"/>
+      <rect x="0" y="30" width="94" height="34" rx="5"/>
+    </g>
+    <g>
+      <circle cx="960" cy="468" r="30" fill="#C21E20"/><circle cx="960" cy="463" r="30" fill="#F22C2E"/>
+      <text x="960" y="473" text-anchor="middle" font-family="'Courier New',monospace" font-size="20" font-weight="bold" fill="#FFFFFF">B</text>
+      <circle cx="1040" cy="436" r="30" fill="#C21E20"/><circle cx="1040" cy="431" r="30" fill="#F22C2E"/>
+      <text x="1040" y="441" text-anchor="middle" font-family="'Courier New',monospace" font-size="20" font-weight="bold" fill="#FFFFFF">A</text>
+    </g>
+    <g fill="#383838" opacity="0.9">
+      <rect x="840" y="512" width="56" height="14" rx="7"/>
+      <rect x="912" y="512" width="56" height="14" rx="7"/>
+    </g>
+  </g>
+  <text x="840" y="596" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="15" fill="#8A7E6E">横屏游戏 + 浮层手柄（示意，画面为原创像素画）</text>
+</svg>

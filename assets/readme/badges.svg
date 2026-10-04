@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 48" width="680" height="48" role="img" aria-label="徽章：平台 FC·GB·GBC，版本 v0.1.0，系统 Android 8.0+，核心 FCEUmm·Gambatte">
+  <title>徽章：平台 FC·GB·GBC，版本 v0.1.0，系统 Android 8.0+，核心 FCEUmm·Gambatte</title>
+  <g font-family="'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif" font-size="16" font-weight="700">
+    <rect x="0" y="6" width="176" height="36" rx="18" fill="#1F1F1F"/>
+    <circle cx="22" cy="24" r="7" fill="#E60012"/>
+    <text x="38" y="30" fill="#FFFFFF">平台 FC·GB·GBC</text>
+
+    <rect x="186" y="6" width="128" height="36" rx="18" fill="#1F1F1F"/>
+    <circle cx="208" cy="24" r="7" fill="#F7B500"/>
+    <text x="224" y="30" fill="#FFFFFF">版本 v0.1.0</text>
+
+    <rect x="324" y="6" width="150" height="36" rx="18" fill="#1F1F1F"/>
+    <circle cx="346" cy="24" r="7" fill="#4CAF50"/>
+    <text x="362" y="30" fill="#FFFFFF">Android 8.0+</text>
+
+    <rect x="484" y="6" width="192" height="36" rx="18" fill="#1F1F1F"/>
+    <circle cx="506" cy="24" r="7" fill="#E60012"/>
+    <text x="522" y="30" fill="#FFFFFF">FCEUmm·Gambatte</text>
+  </g>
+</svg>
